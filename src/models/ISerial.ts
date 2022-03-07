@@ -17,35 +17,53 @@
  * @property {number} [bindingOptions.vtime=0] see [`man termios`](http://linux.die.net/man/3/termios) LinuxBinding and DarwinBinding
  */
 
-import { z } from "zod"
+import { z } from 'zod';
 
 export const iOpenOptions = z.object({
-    autoOpen: z.boolean().default(false),
-    dataBits: z.number().default(8).refine((dataBits) => [5, 6, 7, 8].includes(dataBits)),
-    highWaterMark: z.number().default(65536),
-    lock: z.boolean().default(true),
-    stopBits: z.number().default(1).refine((stopBits) => [1, 2].includes(stopBits)),
-    parity: z.enum(["none", "even", "mark", "odd", "space"]).default("none"),
-    rtscts: z.boolean().default(false),
-    xon: z.boolean().default(false),
-    xoff: z.boolean().default(false),
-    xany: z.boolean().default(false),
-    path: z.string(),
-    baudRate: z.number().default(9600).refine((baudRate) => [110, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200].includes(baudRate), "unsupported baudRate")
-})
+  autoOpen: z.boolean().default(false),
+  dataBits: z
+    .number()
+    .default(8)
+    .refine((dataBits) => [5, 6, 7, 8].includes(dataBits)),
+  highWaterMark: z.number().default(65536),
+  lock: z.boolean().default(true),
+  stopBits: z
+    .number()
+    .default(1)
+    .refine((stopBits) => [1, 2].includes(stopBits)),
+  parity: z.enum(['none', 'even', 'mark', 'odd', 'space']).default('none'),
+  rtscts: z.boolean().default(false),
+  xon: z.boolean().default(false),
+  xoff: z.boolean().default(false),
+  xany: z.boolean().default(false),
+  path: z.string(),
+  baudRate: z
+    .number()
+    .default(9600)
+    .refine(
+      (baudRate) => [110, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200].includes(baudRate),
+      'unsupported baudRate',
+    ),
+});
 export const iSerialPortInfo = z.object({
-    path: z.string(),
-    manufacturer: z.string().optional(),
-    serialNumber: z.string().optional(),
-    pnpId: z.string().optional(),
-    locationId: z.string().optional(),
-    vendorId: z.string().optional(),
-    productId: z.string().optional()
-})
+  path: z.string(),
+  manufacturer: z.string().optional(),
+  serialNumber: z.string().optional(),
+  pnpId: z.string().optional(),
+  locationId: z.string().optional(),
+  vendorId: z.string().optional(),
+  productId: z.string().optional(),
+});
 const iOpenOptionsType = iOpenOptions.partial().extend({
-    path: z.string(),
-    baudRate: z.number().default(9600).refine((baudRate) => [110, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200].includes(baudRate), "unsupported baudRate")
-})
+  path: z.string(),
+  baudRate: z
+    .number()
+    .default(9600)
+    .refine(
+      (baudRate) => [110, 300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200].includes(baudRate),
+      'unsupported baudRate',
+    ),
+});
 
-export type OpenOptions = z.infer<typeof iOpenOptionsType>
-export type SerialPortInfo = z.infer<typeof iSerialPortInfo>
+export type OpenOptions = z.infer<typeof iOpenOptionsType>;
+export type SerialPortInfo = z.infer<typeof iSerialPortInfo>;

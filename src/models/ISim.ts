@@ -1,7 +1,5 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-export const iSimConfig = z.object({
+export const iSimConfig = z.object({});
 
-})
-
-export type SimConfig = z.infer<typeof iSimConfig>
+export type SimConfig = z.infer<typeof iSimConfig>;

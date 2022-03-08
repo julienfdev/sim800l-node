@@ -5,15 +5,18 @@ import { JobHandler } from "./models/JobHandler";
 import JobItem from "./models/JobItem";
 import ModemResponse from "./models/ModemResponse";
 
-const defaultHandler: JobHandler = (buffer: string, callback?: (result: ModemResponse, error: Error) => void, emitter?: EventEmitter, logger?: Console): void => {
+const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
     logger?.info("SIM800L: using default event handler")
-    // Do something
-    console.log(buffer)
+    // Parsing the data buffer
+
+    // If it ends with okay, resolve
+    // If callback, we need to resolve it somehow to allow the event loop to continue
 }
-const incomingHandler: JobHandler = (buffer: string, callback?: (result: ModemResponse, error: Error) => void, emitter?: EventEmitter, logger?: Console) => {
+const incomingHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => {
     logger?.info("SIM800L: using incoming event handler")
     // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
     console.log(buffer)
+    // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
 }
 
 export default class Sim800L {
@@ -74,6 +77,7 @@ export default class Sim800L {
             throw error
         }
     }
+
     public execCommand(command: string, type: string, handler = defaultHandler, callback?: (result: any, err?: Error) => any): Promise<ModemResponse> | void {
         if (typeof callback !== 'function') {
             return new Promise((resolve, reject) => {
@@ -107,7 +111,7 @@ export default class Sim800L {
         // if there is a queue, we can call the handler
         if (this.queue.length) {
             const job = this.queue[0]
-            job.handler(this.dataBuffer, job.callback ? job.callback : undefined, this.events, this.logger)
+            job.handler(this.dataBuffer, job, this.events, this.logger)
         } else {
             // This is incoming data, we need to create a job, unshift it and handle the data
             this.queue.unshift({
@@ -118,6 +122,8 @@ export default class Sim800L {
                 timeoutIdentifier: null
             })
         }
+        this.busy = false
+        this.nextEvent()
     }
     private nextEvent() {
         this.logger.info(`SIM800L: current queue length - ${this.queue.length}`)
@@ -128,20 +134,26 @@ export default class Sim800L {
         // Finding the first item in the queue
         const job = this.queue[0]
         // setting the 10s timeout
-        job.timeoutIdentifier = setTimeout(() => {
-            this.logger.debug(`SIM800L: preparing to cancel job #${job.uuid}`)
-            this.cancelEvent(job.uuid)
-        }, 10000)
-        this.port.write(`${job.command}\r`, undefined, (err: any) => {
-            if (err) {
-                if (job.callback) {
-                    job.callback(null, err)
-                }
-                else {
-                    throw new Error(err)
-                }
+        if (!job.timeoutIdentifier) {
+            this.logger.info(`SIM800L: processing event #${job.uuid}`)
+            // If we're here, this is the first time we process this event
+            job.timeoutIdentifier = setTimeout(() => {
+                this.logger.debug(`SIM800L: preparing to cancel job #${job.uuid}`)
+                this.cancelEvent(job.uuid)
+            }, 10000)
+            if (job.command) {
+                this.port.write(`${job.command}\r`, undefined, (err: any) => {
+                    if (err) {
+                        if (job.callback) {
+                            job.callback(null, err)
+                        }
+                        else {
+                            throw new Error(err)
+                        }
+                    }
+                })
             }
-        })
+        }
         this.busy = false
     }
     private attachingEvents() {

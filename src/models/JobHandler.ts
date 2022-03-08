@@ -1,4 +1,4 @@
 import { EventEmitter } from "stream";
-import ModemResponse from "./ModemResponse";
+import JobItem from "./JobItem";
 
-export type JobHandler = (buffer: string, callback?: (result: ModemResponse, error: Error) => void, emitter?: EventEmitter, logger?: Console) => void
+export type JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => void

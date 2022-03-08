@@ -1,22 +1,60 @@
 import { SerialPort, SerialPortOpenOptions } from "serialport"
 import { EventEmitter } from 'stream';
 import { v4 } from "uuid";
-import { JobHandler } from "./models/JobHandler";
+import { JobHandler, ParsedData } from "./models/JobHandler";
 import JobItem from "./models/JobItem";
 import ModemResponse from "./models/ModemResponse";
 
 const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
-    logger?.info("SIM800L: using default event handler")
-    // Parsing the data buffer
-
-    // If it ends with okay, resolve
-    // If callback, we need to resolve it somehow to allow the event loop to continue
+    try {
+        logger?.info("SIM800L: using default event handler")
+        const parsedData = parseBuffer(buffer)
+        // If it ends with okay, resolve
+        if (isOk(parsedData)) {
+            if (job.callback) {
+                job.callback({
+                    uuid: job.uuid,
+                    type: job.type,
+                    result: 'success',
+                    data: {
+                        raw: buffer,
+                        processed: parsedData
+                    }
+                })
+            }
+            job.ended = true
+        }
+        if (isError(parsedData)) {
+            if (job.callback) {
+                job.callback({
+                    uuid: job.uuid,
+                    type: job.type,
+                    result: 'failure',
+                    error: {
+                        type: "generic",
+                        content: parsedData
+                    }
+                })
+            }
+            job.ended = true
+        }
+        // If callback, we need to resolve it somehow to allow the event loop to continue
+    } catch (error: any) {
+        job.ended = true
+        if (job.callback) { job.callback(null, new Error(error)) }
+    }
 }
 const incomingHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => {
-    logger?.info("SIM800L: using incoming event handler")
-    // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
-    console.log(buffer)
-    // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
+    try {
+        logger?.info("SIM800L: using incoming event handler")
+        const parsedData = parseBuffer(buffer)
+        // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
+        // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
+
+
+    } catch (error: any) {
+        job.ended = true
+    }
 }
 
 export default class Sim800L {
@@ -98,7 +136,8 @@ export default class Sim800L {
             handler,
             command,
             type,
-            timeoutIdentifier: null
+            timeoutIdentifier: null,
+            ended: false
         })
         // We cycle nextEvent()
         this.nextEvent()
@@ -119,7 +158,8 @@ export default class Sim800L {
                 handler: incomingHandler,
                 command: '',
                 type: 'incoming',
-                timeoutIdentifier: null
+                timeoutIdentifier: null,
+                ended: false
             }
             this.queue.unshift(job)
             incomingHandler(this.dataBuffer, job, this.events, this.logger)
@@ -129,12 +169,23 @@ export default class Sim800L {
     }
     private nextEvent() {
         this.logger.info(`SIM800L: current queue length - ${this.queue.length}`)
-        if (!this.queue.length || this.busy) {
+        if (!this.queue.length) {
+            return
+        }
+        // if the job has ended, we clear it
+        const job = this.queue[0]
+        if (job.ended) {
+            this.logger.info(`SIM800L: job ${job.uuid} has ended and will be wiped out of existence`)
+            this.clear()
+            return
+        }
+        //
+        if (this.busy) {
             return
         }
         this.busy = true
         // Finding the first item in the queue
-        const job = this.queue[0]
+
         // setting the 10s timeout
         if (!job.timeoutIdentifier) {
             this.logger.info(`SIM800L: processing event #${job.uuid}`)
@@ -175,6 +226,18 @@ export default class Sim800L {
         if (job && job.callback) {
             job.callback(null, new Error(`job #${job.uuid} - timeout at ${new Date().toISOString()}`))
         }
+        if (job && job.type == 'incoming') {
+            // this was an unhandled event, emitting the event
+            this.events.emit("incoming", {
+                uuid: job.uuid,
+                type: job.type,
+                result: "failure",
+                error: {
+                    type: "unhandled",
+                    content: parseBuffer(this.dataBuffer)
+                }
+            } as ModemResponse<ParsedData>)
+        }
         this.queue = this.queue.filter((job) => {
             return !(job.uuid == uuid)
         })
@@ -183,10 +246,27 @@ export default class Sim800L {
         this.nextEvent()
     }
     private clear() {
+        if (this.queue.length && this.queue[0].timeoutIdentifier) {
+            clearTimeout((this.queue[0].timeoutIdentifier))
+        }
         this.busy = false
         this.dataBuffer = ''
         this.queue.shift()
         this.nextEvent()
     }
 
+}
+
+// Support functions
+function parseBuffer(buffer: string): string[] {
+    return buffer.split(/[\r\n]{1,2}/).filter((value => {
+        return !/^[\r\n]{1,2}$/.test(value) && value.length
+    }))
+}
+
+function isOk(parsedData: ParsedData) {
+    return parsedData.length ? parsedData[parsedData.length - 1] == 'OK' : false
+}
+function isError(parsedData: ParsedData) {
+    return parsedData.length ? parsedData[parsedData.length - 1] == 'ERROR' : false
 }

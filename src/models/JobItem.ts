@@ -8,5 +8,6 @@ export default interface JobItem {
     handler: JobHandler
     command: string,
     type: string,
-    timeoutIdentifier: any
+    timeoutIdentifier: any,
+    ended: boolean
 }

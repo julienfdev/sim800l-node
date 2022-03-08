@@ -306,7 +306,7 @@ export default class Sim800L {
         }
     }
 
-    public execCommand = (callback: ModemCallback | undefined, command: string, type: string, handler = defaultHandler): Promise<ModemResponse> | void => {
+    public execCommand = (callback: ModemCallback | undefined, command: string, type: string, handler = defaultHandler, timeout?: number): Promise<ModemResponse> | void => {
         if (typeof callback !== 'function') {
             return promisify(this.execCommand, command, type, handler)
         }
@@ -319,6 +319,7 @@ export default class Sim800L {
             command,
             type,
             timeoutIdentifier: null,
+            overrideTimeout: timeout,
             ended: false
         })
         // We cycle nextEvent()
@@ -375,7 +376,7 @@ export default class Sim800L {
             job.timeoutIdentifier = setTimeout(() => {
                 this.logger.debug(`SIM800L - preparing to cancel job #${job.uuid}`)
                 this.cancelEvent(job.uuid)
-            }, 10000)
+            }, job.overrideTimeout || 10000)
             if (job.command) {
                 this.port.write(`${job.command}\r`, undefined, (err: any) => {
                     if (err) {

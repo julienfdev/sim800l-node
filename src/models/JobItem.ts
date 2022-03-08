@@ -10,5 +10,8 @@ export default interface JobItem {
     command: string,
     type: string,
     timeoutIdentifier: any,
-    ended: boolean
+    ended: boolean,
+    overrideTimeout?: number,
+    inbox?: Record<string, any>[],
+    outbox?: Record<string, any>[] // Message interface TBD
 }

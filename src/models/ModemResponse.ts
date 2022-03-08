@@ -3,7 +3,7 @@ export default interface ModemResponse<T = any, R = any> {
     type: string,
     result: "success" | "failure"
     data?: {
-        raw: string,
+        raw: string | string[],
         processed: T
     }
     error?: {
@@ -19,7 +19,20 @@ export enum InitializeStatus {
     NEED_PUK,
     ERROR
 }
-export enum QueryStatus{
+export enum ConnectionAction{
+    DISABLE_REGISTRATION,
+    ENABLE_REGISTRATION,
+    ENABLE_FULL
+}
+export enum ConnectionStatus {
+    NOT_REGISTERED_IDLE,
+    REGISTERED,
+    IN_PROGRESS,
+    DENIED,
+    UNKNOWN,
+    ROAMING
+}
+export enum QueryStatus {
     OK,
     ERROR
 }
@@ -38,8 +51,13 @@ export type CheckPinStatus = {
     status: InitializeStatus,
     message: string
 }
+export type CheckNetworkData = {
+    networkAction: number,
+    networkStatus: ConnectionStatus
+}
+
 export type ModemErrorRaw = {
     error: boolean,
     message?: string,
     raw?: string | string[]
-} 
+}

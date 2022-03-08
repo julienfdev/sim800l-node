@@ -95,7 +95,8 @@ export default class Sim800L {
                         return
                     }
                     // We will try to unlock the SIM, once, emit an event and throw the hell out of the app if it does not work
-                    console.log("unlocking sim")
+                    const unlocked = await this.unlockSim(undefined, this.simConfig.pin)
+                    // If failure we callback
                 }
 
                 this.initialized = true
@@ -176,21 +177,7 @@ export default class Sim800L {
                         const keyFields = field.split(" ")
                         keyFields.splice(0, 1)
                         const key = keyFields.join(" ")
-                        let status: InitializeStatus
-                        switch (key) {
-                            case "READY":
-                                status = InitializeStatus.READY;
-                                break;
-                            case "SIM PIN":
-                                status = InitializeStatus.NEED_PIN;
-                                break;
-                            case "SIM PUK":
-                                status = InitializeStatus.NEED_PUK;
-                                break;
-                            default:
-                                status = InitializeStatus.ERROR
-                                break;
-                        }
+                        let status = getInitializationStatus(key)
                         this.logger.info(`SIM800L -  pin lock : ${getStatusMessage(status)} `)
                         job.callback!({
                             uuid: job.uuid,
@@ -234,6 +221,63 @@ export default class Sim800L {
             } catch (error: any) {
                 callback(null, new Error(error || 'unhandled pin check failure'))
             }
+        }
+    }
+    public unlockSim = async (callback: ModemCallback | undefined, pin: string) => {
+        if (typeof callback !== 'function') {
+            return promisify(this.unlockSim, pin)
+        } else {
+            const handler: JobHandler = (buffer, job) => {
+                const parsedBuffer = parseBuffer(buffer)
+                if (isError(parsedBuffer).error) {
+                    // pin is probably wrong, we need to callback
+                    this.logger.error("SIM800L - WRONG PIN ! CHECK PIN ASAP")
+                    job.callback!({
+                        uuid: job.uuid,
+                        type: job.type,
+                        result: "failure",
+                        error: {
+                            type: "sim-unlock",
+                            content: {
+                                status: InitializeStatus.PIN_INCORRECT,
+                                message: isError(parsedBuffer).message
+                            }
+                        }
+                    })
+                }
+                // if not error, it can be "okay", we just log it as we're waiting for the +CPIN info
+                if (isOk(parsedBuffer)) {
+                    this.logger.info("SIM800L - pin accepted, waiting for unlock")
+                }
+                // Now, we're looking into the last part of parsedData and search for "+CPIN: "
+                if (parsedBuffer.length && parsedBuffer[parsedBuffer.length - 1].startsWith("+CPIN: ")) {
+                    // we extract the status, it looks a lot like checkpinrequired
+                    const key = parsedBuffer[parsedBuffer.length - 1].split("+CPIN: ").length ? parsedBuffer[parsedBuffer.length - 1].split("+CPIN: ")[1] : null
+                    const status = key ? getInitializationStatus(key) : InitializeStatus.ERROR
+                    this.logger.info(`SIM800L -  pin lock : ${getStatusMessage(status)} `)
+                    job.callback!({
+                        uuid: job.uuid,
+                        type: "pin-check",
+                        result: status == InitializeStatus.READY ? "success" : "failure",
+                        data: status == InitializeStatus.READY ? {
+                            raw: buffer,
+                            processed: {
+                                status,
+                                message: getStatusMessage(status)
+                            }
+                        } : undefined,
+                        error: status !== InitializeStatus.READY ? {
+                            type: "pin-required",
+                            content: {
+                                status,
+                                message: getStatusMessage(status)
+                            }
+                        } : undefined
+                    })
+                    job.ended = true
+                }
+            }
+            await this.execCommand(callback, `AT+CPIN=${pin}`, 'pin-unlock', handler)
         }
     }
 
@@ -416,7 +460,18 @@ function getStatusMessage(status: InitializeStatus): string {
             return "can't figure out what's wrong, please check if sim is properly inserted"
     }
 }
-
+function getInitializationStatus(key: string): InitializeStatus {
+    switch (key) {
+        case "READY":
+            return InitializeStatus.READY;
+        case "SIM PIN":
+            return InitializeStatus.NEED_PIN;
+        case "SIM PUK":
+            return InitializeStatus.NEED_PUK;
+        default:
+            return InitializeStatus.ERROR
+    }
+}
 function parseBuffer(buffer: string): string[] {
     return buffer.split(/[\r\n]{1,2}/).filter((value => {
         return !/^[\r\n]{1,2}$/.test(value) && value.length

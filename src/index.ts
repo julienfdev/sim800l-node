@@ -63,10 +63,12 @@ export default class Sim800L {
 
     public close(): void {
         try {
+            this.initialized = false
             this.logger.log("SIM800L -  closing serial port")
             this.port.close()
             this.logger.debug("SIM800L -  serial port closed")
         } catch (error) {
+            this.initialized = false
             this.logger.error("SIM800L -  unable to close serial port")
             throw error
         }
@@ -95,10 +97,20 @@ export default class Sim800L {
                         return
                     }
                     // We will try to unlock the SIM, once, emit an event and throw the hell out of the app if it does not work
-                    const unlocked = await this.unlockSim(undefined, this.simConfig.pin)
-                    // If failure we callback
+                    const unlocked = await this.unlockSim(undefined, this.simConfig.pin) as ModemResponse
+                    if (!(unlocked.result == "success")) {
+                        this.events.emit("error", unlocked)
+                        callback(unlocked)
+                    }
+                }
+                // finally, we update the cnmi config
+                const updatedConfig = await this.updateCnmiConfig(undefined, this.simConfig.customCnmi!)
+                if (!(updatedConfig.result == "success")) {
+                    this.events.emit("error", updatedConfig)
+                    callback(updatedConfig)
                 }
 
+                // Holy cow
                 this.initialized = true
                 this.events.emit("initialized")
             } catch (error) {
@@ -278,6 +290,14 @@ export default class Sim800L {
                 }
             }
             await this.execCommand(callback, `AT+CPIN=${pin}`, 'pin-unlock', handler)
+        }
+    }
+    public updateCnmiConfig = async (callback: ModemCallback | undefined, cnmi: string): Promise<ModemResponse> => {
+        if (typeof callback !== 'function') {
+            return promisify(this.updateCnmiConfig, cnmi)
+        } else {
+            const handler = defaultHandler // We just need an OK or ERROR, defaultHandler is perfect for that
+            return (await this.execCommand(callback, `AT+CNMI=${cnmi}`, 'cnmi-config', handler)) as ModemResponse
         }
     }
 

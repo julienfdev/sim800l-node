@@ -3,63 +3,13 @@ import { EventEmitter } from 'stream';
 import { v4 } from "uuid";
 import { JobHandler, ParsedData } from "./models/JobHandler";
 import JobItem from "./models/JobItem";
-import ModemResponse from "./models/ModemResponse";
-
-const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
-    try {
-        logger?.info("SIM800L: using default event handler")
-        const parsedData = parseBuffer(buffer)
-        // If it ends with okay, resolve
-        if (isOk(parsedData)) {
-            if (job.callback) {
-                job.callback({
-                    uuid: job.uuid,
-                    type: job.type,
-                    result: 'success',
-                    data: {
-                        raw: buffer,
-                        processed: parsedData
-                    }
-                })
-            }
-            job.ended = true
-        }
-        if (isError(parsedData)) {
-            if (job.callback) {
-                job.callback({
-                    uuid: job.uuid,
-                    type: job.type,
-                    result: 'failure',
-                    error: {
-                        type: "generic",
-                        content: parsedData
-                    }
-                })
-            }
-            job.ended = true
-        }
-        // If callback, we need to resolve it somehow to allow the event loop to continue
-    } catch (error: any) {
-        job.ended = true
-        if (job.callback) { job.callback(null, new Error(error)) }
-    }
-}
-const incomingHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => {
-    try {
-        logger?.info("SIM800L: using incoming event handler")
-        const parsedData = parseBuffer(buffer)
-        // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
-        // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
-
-
-    } catch (error: any) {
-        job.ended = true
-    }
-}
-
+import { DefaultFunctionSignature, ModemCallback } from "./models/ModemCallback";
+import ModemResponse, { CheckModemResponse, InitializeResponse, InitializeStatus, QueryStatus } from "./models/ModemResponse";
 export default class Sim800L {
     public events = new EventEmitter();
     public simConfig: Record<string, any>
+    public initialized = false
+
     private port: SerialPort;
     private queue: JobItem[] = []
     private busy = false
@@ -115,18 +65,146 @@ export default class Sim800L {
             throw error
         }
     }
-
-    public execCommand(command: string, type: string, handler = defaultHandler, callback?: (result: any, err?: Error) => any): Promise<ModemResponse> | void {
+    public initialize = async (callback?: ModemCallback<InitializeResponse>): Promise<ModemResponse<InitializeResponse> | void> => {
         if (typeof callback !== 'function') {
-            return new Promise((resolve, reject) => {
-                this.execCommand(command, type, handler, (result, err) => {
-                    if (err) {
-                        reject(err)
-                    } else {
-                        resolve(result)
+            return promisify(this.initialize)
+        }
+        else {
+            try {
+                const modemChecked = (await this.checkModem() as ModemResponse)
+                if (!(modemChecked.result == 'success')) {
+                    callback(modemChecked)
+                    return
+                }
+                this.initialized = true
+            } catch (error) {
+                callback(null, new Error('unhandled initialization failure'))
+            }
+        }
+        return
+    }
+
+    public checkModem = async (callback?: ModemCallback<InitializeResponse>): Promise<ModemResponse<CheckModemResponse> | void> => {
+        if (typeof callback !== 'function') {
+            return promisify(this.checkModem)
+        }
+        else {
+            try {
+                // We define the handler, which will search of an OK end of query
+                const handler: JobHandler = (buffer, job) => {
+                    if (isOk(parseBuffer(buffer))) {
+                        job.callback!({
+                            uuid: job.uuid,
+                            type: job.type,
+                            result: "success",
+                            data: {
+                                raw: buffer,
+                                processed: {
+                                    status: QueryStatus.OK,
+                                    message: "Modem is Online"
+                                }
+                            }
+                        })
+                        job.ended = true
+                    } else if (isError(parseBuffer(buffer))) {
+                        job.callback!({
+                            uuid: job.uuid,
+                            type: job.type,
+                            result: "failure",
+                            error: {
+                                type: "checkError",
+                                content: buffer
+                            }
+                        })
+                        job.ended = true
                     }
-                })
-            })
+                }
+                // Exec command AT
+                await this.execCommand(callback, 'AT', 'check-modem', handler)
+            } catch (error: any) {
+                callback(null, new Error(error || 'unhandled modem check failure'))
+            }
+        }
+    }
+    public checkPinRequired = async (callback?: ModemCallback<InitializeResponse>): Promise<ModemResponse<CheckModemResponse> | void> => {
+        if (typeof callback !== 'function') {
+            return promisify(this.checkPinRequired)
+        }
+        else {
+            try {
+                const handler: JobHandler = (buffer, job) => {
+                    const parsedBuffer = parseBuffer(buffer)
+                    if (isOk(parsedBuffer)) {
+                        // command has been received, we can intercept the field that starts with +CPIN and extract the
+                        // status
+                        const field = parsedBuffer.find((part) => {
+                            return part.startsWith("+CPIN")
+                        })
+                        if (!field || !(field?.split(" ").length > 1)) {
+                            // can't parse the result, throw an error
+                            throw "pin-check : can't parse result"
+                        }
+                        // we get rid of the first split and join the rest
+                        const keyFields = field.split(" ")
+                        keyFields.splice(0, 1)
+                        const key = keyFields.join(" ")
+                        let status: InitializeStatus
+                        console.log(key)
+                        switch (key) {
+                            case "READY":
+                                status = InitializeStatus.READY;
+                                break;
+                            case "SIM PIN":
+                                status = InitializeStatus.NEED_PIN;
+                                break;
+                            case "SIM PUK":
+                                status = InitializeStatus.NEED_PUK;
+                                break;
+                            default:
+                                status = InitializeStatus.ERROR
+                                break;
+                        }
+                        job.callback!({
+                            uuid: job.uuid,
+                            type: "pin-check",
+                            result: status == InitializeStatus.READY ? "success" : "failure",
+                            data: status == InitializeStatus.READY ? {
+                                raw: buffer,
+                                processed: {
+                                    status,
+                                    message: "modem ready"
+                                }
+                            } : undefined,
+                            error: status !== InitializeStatus.READY ? {
+                                type: "pin-required",
+                                content: status
+                            } : undefined
+                        })
+                        job.ended = true
+                    }
+                    if (isError(parsedBuffer)) {
+                        job.callback!({
+                            uuid: job.uuid,
+                            type: job.type,
+                            result: "failure",
+                            error: {
+                                type: "checkPinError - probably no sim",
+                                content: InitializeStatus.ERROR
+                            }
+                        })
+                        job.ended = true
+                    }
+                }
+                await this.execCommand(callback, 'AT+CPIN?', 'check-pin', handler)
+            } catch (error: any) {
+                callback(null, new Error(error || 'unhandled pin check failure'))
+            }
+        }
+    }
+
+    public execCommand = (callback: ModemCallback | undefined, command: string, type: string, handler = defaultHandler): Promise<ModemResponse> | void => {
+        if (typeof callback !== 'function') {
+            return promisify(this.execCommand, command, type, handler)
         }
         this.logger.log(`SIM800L: queuing command ${command.length > 15 ? `${command.substring(0, 15)}...` : command} `)
         // We create a queue item
@@ -257,16 +335,99 @@ export default class Sim800L {
 
 }
 
-// Support functions
+//  ________  ___  ___  ________  ________  ________  ________  _________   
+// |\   ____\|\  \|\  \|\   __  \|\   __  \|\   __  \|\   __  \|\___   ___\ 
+// \ \  \___|\ \  \\\  \ \  \|\  \ \  \|\  \ \  \|\  \ \  \|\  \|___ \  \_| 
+//  \ \_____  \ \  \\\  \ \   ____\ \   ____\ \  \\\  \ \   _  _\   \ \  \  
+//   \|____|\  \ \  \\\  \ \  \___|\ \  \___|\ \  \\\  \ \  \\  \|   \ \  \ 
+//     ____\_\  \ \_______\ \__\    \ \__\    \ \_______\ \__\\ _\    \ \__\
+//    |\_________\|_______|\|__|     \|__|     \|_______|\|__|\|__|    \|__|
+//    \|_________|                                                          
+
+
+function promisify(functionSignature: DefaultFunctionSignature, ...args: any[]): Promise<ModemResponse> {
+    return new Promise((resolve, reject) => {
+        functionSignature((result, err) => {
+            if (err) {
+                reject(err)
+            } else if (result) {
+                resolve(result)
+            }
+        }, ...args)
+    })
+}
+
 function parseBuffer(buffer: string): string[] {
     return buffer.split(/[\r\n]{1,2}/).filter((value => {
         return !/^[\r\n]{1,2}$/.test(value) && value.length
     }))
 }
-
 function isOk(parsedData: ParsedData) {
     return parsedData.length ? parsedData[parsedData.length - 1] == 'OK' : false
 }
 function isError(parsedData: ParsedData) {
     return parsedData.length ? parsedData[parsedData.length - 1] == 'ERROR' : false
+}
+
+//  ___  ___  ________  ________   ________  ___       _______   ________  ________      
+// |\  \|\  \|\   __  \|\   ___  \|\   ___ \|\  \     |\  ___ \ |\   __  \|\   ____\     
+// \ \  \\\  \ \  \|\  \ \  \\ \  \ \  \_|\ \ \  \    \ \   __/|\ \  \|\  \ \  \___|_    
+//  \ \   __  \ \   __  \ \  \\ \  \ \  \ \\ \ \  \    \ \  \_|/_\ \   _  _\ \_____  \   
+//   \ \  \ \  \ \  \ \  \ \  \\ \  \ \  \_\\ \ \  \____\ \  \_|\ \ \  \\  \\|____|\  \  
+//    \ \__\ \__\ \__\ \__\ \__\\ \__\ \_______\ \_______\ \_______\ \__\\ _\ ____\_\  \ 
+//     \|__|\|__|\|__|\|__|\|__| \|__|\|_______|\|_______|\|_______|\|__|\|__|\_________\
+//                                                                           \|_________|
+
+
+
+const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
+    try {
+        logger?.info("SIM800L: using default event handler")
+        const parsedData = parseBuffer(buffer)
+        // If it ends with okay, resolve
+        if (isOk(parsedData)) {
+            if (job.callback) {
+                job.callback({
+                    uuid: job.uuid,
+                    type: job.type,
+                    result: 'success',
+                    data: {
+                        raw: buffer,
+                        processed: parsedData
+                    }
+                })
+            }
+            job.ended = true
+        }
+        if (isError(parsedData)) {
+            if (job.callback) {
+                job.callback({
+                    uuid: job.uuid,
+                    type: job.type,
+                    result: 'failure',
+                    error: {
+                        type: "generic",
+                        content: parsedData
+                    }
+                })
+            }
+            job.ended = true
+        }
+        // If callback, we need to resolve it somehow to allow the event loop to continue
+    } catch (error: any) {
+        job.ended = true
+        if (job.callback) { job.callback(null, new Error(error)) }
+    }
+}
+const incomingHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => {
+    try {
+        logger?.info("SIM800L: using incoming event handler")
+        const parsedData = parseBuffer(buffer)
+        // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
+        // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
+
+
+    } catch (error: any) {
+        job.ended = true
+    }
 }

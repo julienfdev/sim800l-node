@@ -1,10 +1,11 @@
 import { EventEmitter } from "stream";
 import { JobHandler } from "./JobHandler";
+import { ModemCallback } from "./ModemCallback";
 import ModemResponse from "./ModemResponse";
 
 export default interface JobItem {
     uuid: string,
-    callback?: (result: ModemResponse | null, err?: Error) => void,
+    callback?: ModemCallback
     handler: JobHandler
     command: string,
     type: string,

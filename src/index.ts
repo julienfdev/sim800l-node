@@ -16,10 +16,10 @@ export default class Sim800L {
     }
     public initialized = false
     public networkReady = false
+    public retryNumber = 0
     private port: SerialPort;
     private queue: JobItem[] = []
     private busy = false
-    private timeouts: Record<string, any>[] = []
     private logger: Console
     private dataBuffer = ''
 
@@ -303,6 +303,35 @@ export default class Sim800L {
             this.logger.log(`SIM800L - updating CNMI config with values ${cnmi}`)
             const handler = defaultHandler // We just need an OK or ERROR, defaultHandler is perfect for that
             return (await this.execCommand(callback, `AT+CNMI=${cnmi}`, 'cnmi-config', handler)) as ModemResponse
+        }
+    }
+    public resetModem = async (callback: ModemCallback | undefined, mode = "1,1", reInitialize = false) => {
+        if (typeof callback !== 'function') {
+            return promisify(this.resetModem, mode, reInitialize)
+        } else {
+            console.warn(chalk.bgYellowBright.black("SIM800L - modem will reset"))
+            const handler: JobHandler = (buffer, job) => {
+                // Very simple handler, once called, it just sets a timeout of a few seconds resetting the whole object
+                setTimeout(() => {
+                    console.warn(chalk.bgYellowBright.black("SIM800L - modem is reset"))
+                    job.ended = true
+                    this.queue = []
+                    reInitialize ? this.initialize() : null
+                    callback({
+                        uuid: job.uuid,
+                        type: job.type,
+                        result: "success",
+                    })
+                }, 6000)
+            }
+
+            // calling the reset vector
+            await this.execCommand(callback, `AT+CFUN=${mode}`, "reset", handler)
+            this.initialized = false
+            this.retryNumber = 0
+            this.networkReady = false
+            this.dataBuffer = ''
+            console.warn(chalk.bgYellowBright.black("SIM800L - modem is resetting... please wait..."))
         }
     }
 

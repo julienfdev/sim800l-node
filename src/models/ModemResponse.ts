@@ -40,5 +40,6 @@ export type CheckPinStatus = {
 }
 export type ModemErrorRaw = {
     error: boolean,
-    message?: string
+    message?: string,
+    raw?: string | string[]
 } 

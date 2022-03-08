@@ -83,6 +83,9 @@ export default class Sim800L {
                     callback(modemChecked)
                     return
                 }
+                this.logger.info("SIM800L - Trying to enable ")
+                await this.execCommand(undefined, 'AT+CMEE=2', 'verbose')
+
                 const pinChecked = await this.checkPinRequired() as ModemResponse<CheckPinStatus>
                 if (!(pinChecked.result == "success")) {
                     // We switch, if !NEED_PIN we can callback and return
@@ -220,7 +223,7 @@ export default class Sim800L {
                                 type: "checkPinError",
                                 content: {
                                     status: InitializeStatus.ERROR,
-                                    message: "can't check pin lock status, please make sure sim is inserted"
+                                    message: isError(parsedBuffer).message
                                 }
                             }
                         })
@@ -428,7 +431,9 @@ function isError(parsedData: ParsedData): ModemErrorRaw {
         // extracting message
         field.splice(0, 1)
         const message = field.length ? field.join(" ") : undefined
-        return { error: true, ...{ message } }
+        return { error: true, raw: parsedData, ...{ message } }
+    } else if (parsedData && parsedData.length) {
+        return parsedData[parsedData.length - 1] == "ERROR" ? { error: true, message: `${parsedData.join(" - ")}`, raw: parsedData } : { error: false }
     } else {
         return { error: false }
     }

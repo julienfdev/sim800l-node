@@ -15,7 +15,7 @@ export default class Sim800L {
         autoDeleteFromSim: true
     }
     public initialized = false
-
+    public networkReady = false
     private port: SerialPort;
     private queue: JobItem[] = []
     private busy = false

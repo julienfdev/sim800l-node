@@ -8,7 +8,7 @@ export default interface ModemResponse<T = any, R = any> {
     }
     error?: {
         type: string,
-        content: R
+        content: T
     }
 }
 
@@ -25,7 +25,7 @@ export enum QueryStatus{
 }
 
 export type InitializeResponse = {
-    status: InitializeStatus,
+    status: InitializeStatus | QueryStatus,
     message: string
 }
 
@@ -38,3 +38,7 @@ export type CheckPinStatus = {
     status: InitializeStatus,
     message: string
 }
+export type ModemErrorRaw = {
+    error: boolean,
+    message?: string
+} 

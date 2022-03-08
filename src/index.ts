@@ -4,10 +4,15 @@ import { v4 } from "uuid";
 import { JobHandler, ParsedData } from "./models/JobHandler";
 import JobItem from "./models/JobItem";
 import { DefaultFunctionSignature, ModemCallback } from "./models/ModemCallback";
-import ModemResponse, { CheckModemResponse, InitializeResponse, InitializeStatus, QueryStatus } from "./models/ModemResponse";
+import ModemResponse, { CheckModemResponse, CheckPinStatus, InitializeResponse, InitializeStatus, ModemErrorRaw, QueryStatus } from "./models/ModemResponse";
+import SimConfig from "./models/SimConfig";
 export default class Sim800L {
     public events = new EventEmitter();
-    public simConfig: Record<string, any>
+    public simConfig: SimConfig = {
+        customCnmi: "2,1,2,1,0",
+        deliveryReport: true,
+        autoDeleteFromSim: true
+    }
     public initialized = false
 
     private port: SerialPort;
@@ -23,16 +28,17 @@ export default class Sim800L {
      * @param {OpenOptions} options
      * @memberof Sim800L
      */
-    constructor(options: SerialPortOpenOptions<any>, simConfig: Record<string, any>) {
+    constructor(options: SerialPortOpenOptions<any>, simConfig: SimConfig) {
         try {
             // parsing the options (setting autoOpen to false in the meantime)
             this.port = new SerialPort(options as SerialPortOpenOptions<any>)
-            this.simConfig = simConfig
-            this.logger = this.simConfig && this.simConfig.logger ? this.simConfig.logger : console as Console
-            this.logger.log("SIM800L: initialization")
+            this.simConfig = { ...this.simConfig, ...simConfig }
+            this.logger = this.simConfig.logger || console as Console
+            this.logger.log("SIM800L -  initialization")
             // Forwarding all events
             this.attachingEvents()
-            this.logger.debug("SIM800L: instance created")
+            this.initialize()
+            this.logger.debug("SIM800L -  instance created")
         } catch (error) {
             throw error;
         }
@@ -57,11 +63,11 @@ export default class Sim800L {
 
     public close(): void {
         try {
-            this.logger.log("SIM800L: closing serial port")
+            this.logger.log("SIM800L -  closing serial port")
             this.port.close()
-            this.logger.debug("SIM800L: serial port closed")
+            this.logger.debug("SIM800L -  serial port closed")
         } catch (error) {
-            this.logger.error("SIM800L: unable to close serial port")
+            this.logger.error("SIM800L -  unable to close serial port")
             throw error
         }
     }
@@ -71,12 +77,26 @@ export default class Sim800L {
         }
         else {
             try {
-                const modemChecked = (await this.checkModem() as ModemResponse)
+                const modemChecked = (await this.checkModem() as ModemResponse<CheckModemResponse>)
                 if (!(modemChecked.result == 'success')) {
+                    this.events.emit("error", modemChecked)
                     callback(modemChecked)
                     return
                 }
+                const pinChecked = await this.checkPinRequired() as ModemResponse<CheckPinStatus>
+                if (!(pinChecked.result == "success")) {
+                    // We switch, if !NEED_PIN we can callback and return
+                    if (!(pinChecked.error?.content.status == InitializeStatus.NEED_PIN) || !this.simConfig.pin) {
+                        this.events.emit("error", pinChecked)
+                        callback(pinChecked)
+                        return
+                    }
+                    // We will try to unlock the SIM, once, emit an event and throw the hell out of the app if it does not work
+                    console.log("unlocking sim")
+                }
+
                 this.initialized = true
+                this.events.emit("initialized")
             } catch (error) {
                 callback(null, new Error('unhandled initialization failure'))
             }
@@ -89,10 +109,12 @@ export default class Sim800L {
             return promisify(this.checkModem)
         }
         else {
+            this.logger.log("SIM800L -  checking modem connection")
             try {
                 // We define the handler, which will search of an OK end of query
                 const handler: JobHandler = (buffer, job) => {
                     if (isOk(parseBuffer(buffer))) {
+                        this.logger.info("SIM800L -  modem online")
                         job.callback!({
                             uuid: job.uuid,
                             type: job.type,
@@ -106,7 +128,8 @@ export default class Sim800L {
                             }
                         })
                         job.ended = true
-                    } else if (isError(parseBuffer(buffer))) {
+                    } else if (isError(parseBuffer(buffer)).error) {
+                        this.logger.error("SIM800L -  modem error")
                         job.callback!({
                             uuid: job.uuid,
                             type: job.type,
@@ -126,12 +149,13 @@ export default class Sim800L {
             }
         }
     }
-    public checkPinRequired = async (callback?: ModemCallback<InitializeResponse>): Promise<ModemResponse<CheckModemResponse> | void> => {
+    public checkPinRequired = async (callback?: ModemCallback<InitializeResponse>): Promise<ModemResponse<CheckPinStatus> | void> => {
         if (typeof callback !== 'function') {
             return promisify(this.checkPinRequired)
         }
         else {
             try {
+                this.logger.log("SIM800L -  checking pin lock status")
                 const handler: JobHandler = (buffer, job) => {
                     const parsedBuffer = parseBuffer(buffer)
                     if (isOk(parsedBuffer)) {
@@ -142,6 +166,7 @@ export default class Sim800L {
                         })
                         if (!field || !(field?.split(" ").length > 1)) {
                             // can't parse the result, throw an error
+                            this.logger.error("SIM800L -  can't parse pin lock status")
                             throw "pin-check : can't parse result"
                         }
                         // we get rid of the first split and join the rest
@@ -149,7 +174,6 @@ export default class Sim800L {
                         keyFields.splice(0, 1)
                         const key = keyFields.join(" ")
                         let status: InitializeStatus
-                        console.log(key)
                         switch (key) {
                             case "READY":
                                 status = InitializeStatus.READY;
@@ -164,6 +188,7 @@ export default class Sim800L {
                                 status = InitializeStatus.ERROR
                                 break;
                         }
+                        this.logger.info(`SIM800L -  pin lock : ${getStatusMessage(status)} `)
                         job.callback!({
                             uuid: job.uuid,
                             type: "pin-check",
@@ -172,24 +197,31 @@ export default class Sim800L {
                                 raw: buffer,
                                 processed: {
                                     status,
-                                    message: "modem ready"
+                                    message: getStatusMessage(status)
                                 }
                             } : undefined,
                             error: status !== InitializeStatus.READY ? {
                                 type: "pin-required",
-                                content: status
+                                content: {
+                                    status,
+                                    message: getStatusMessage(status)
+                                }
                             } : undefined
                         })
                         job.ended = true
                     }
-                    if (isError(parsedBuffer)) {
+                    if (isError(parsedBuffer).error) {
+                        this.logger.error("SIM800L - pin lock : sim error")
                         job.callback!({
                             uuid: job.uuid,
                             type: job.type,
                             result: "failure",
                             error: {
-                                type: "checkPinError - probably no sim",
-                                content: InitializeStatus.ERROR
+                                type: "checkPinError",
+                                content: {
+                                    status: InitializeStatus.ERROR,
+                                    message: "can't check pin lock status, please make sure sim is inserted"
+                                }
                             }
                         })
                         job.ended = true
@@ -206,7 +238,7 @@ export default class Sim800L {
         if (typeof callback !== 'function') {
             return promisify(this.execCommand, command, type, handler)
         }
-        this.logger.log(`SIM800L: queuing command ${command.length > 15 ? `${command.substring(0, 15)}...` : command} `)
+        this.logger.log(`SIM800L -  queuing command ${command.length > 15 ? `${command.substring(0, 15)}...` : command} `)
         // We create a queue item
         this.queue.push({
             uuid: v4(),
@@ -246,14 +278,14 @@ export default class Sim800L {
         this.nextEvent()
     }
     private nextEvent() {
-        this.logger.info(`SIM800L: current queue length - ${this.queue.length}`)
+        this.logger.info(`SIM800L -  current queue length - ${this.queue.length}`)
         if (!this.queue.length) {
             return
         }
         // if the job has ended, we clear it
         const job = this.queue[0]
         if (job.ended) {
-            this.logger.info(`SIM800L: job ${job.uuid} has ended and will be wiped out of existence`)
+            this.logger.info(`SIM800L -  job ${job.uuid} has ended and will be wiped out of existence`)
             this.clear()
             return
         }
@@ -266,10 +298,10 @@ export default class Sim800L {
 
         // setting the 10s timeout
         if (!job.timeoutIdentifier) {
-            this.logger.info(`SIM800L: processing event #${job.uuid}`)
+            this.logger.info(`SIM800L -  processing event #${job.uuid}`)
             // If we're here, this is the first time we process this event
             job.timeoutIdentifier = setTimeout(() => {
-                this.logger.debug(`SIM800L: preparing to cancel job #${job.uuid}`)
+                this.logger.debug(`SIM800L -  preparing to cancel job #${job.uuid}`)
                 this.cancelEvent(job.uuid)
             }, 10000)
             if (job.command) {
@@ -279,7 +311,8 @@ export default class Sim800L {
                             job.callback(null, err)
                         }
                         else {
-                            throw new Error(err)
+                            // event error
+                            this.events.emit("error", err)
                         }
                     }
                 })
@@ -288,21 +321,30 @@ export default class Sim800L {
         this.busy = false
     }
     private attachingEvents() {
-        this.logger.info("SIM800L: attaching serialport events")
+        this.logger.info("SIM800L -  attaching serialport events")
         this.port.on('open', () => {
             this.events.emit('open');
         });
         this.port.on("data", this.handleIncomingData)
-        this.logger.debug("SIM800L: serialport events attached")
+        this.logger.debug("SIM800L -  serialport events attached")
     }
     private cancelEvent(uuid: string) {
-        this.logger.warn(`SIM800L: ${uuid} - TIMEOUT`)
+        this.logger.warn(`SIM800L -  ${uuid} - TIMEOUT`)
         // Find the job and calling its callback with the Error timeout
         const job = this.queue.find((queuedJob) => {
             return queuedJob.uuid == uuid
         })
         if (job && job.callback) {
             job.callback(null, new Error(`job #${job.uuid} - timeout at ${new Date().toISOString()}`))
+            this.events.emit("error", {
+                uuid: job.uuid,
+                type: job.type,
+                result: "failure",
+                error: {
+                    type: "unhandled",
+                    content: parseBuffer(this.dataBuffer)
+                }
+            } as ModemResponse<ParsedData>)
         }
         if (job && job.type == 'incoming') {
             // this was an unhandled event, emitting the event
@@ -357,6 +399,21 @@ function promisify(functionSignature: DefaultFunctionSignature, ...args: any[]):
     })
 }
 
+function getStatusMessage(status: InitializeStatus): string {
+    switch (status) {
+        case InitializeStatus.READY:
+            return "modem is ready"
+        case InitializeStatus.NEED_PIN:
+            return "please provide a pin number to unlock the SIM Card"
+        case InitializeStatus.PIN_INCORRECT:
+            return "please think twice before hitting refresh mate, you'll probably lock your sim card"
+        case InitializeStatus.NEED_PUK:
+            return "told ya"
+        case InitializeStatus.ERROR:
+            return "can't figure out what's wrong, please check if sim is properly inserted"
+    }
+}
+
 function parseBuffer(buffer: string): string[] {
     return buffer.split(/[\r\n]{1,2}/).filter((value => {
         return !/^[\r\n]{1,2}$/.test(value) && value.length
@@ -365,8 +422,16 @@ function parseBuffer(buffer: string): string[] {
 function isOk(parsedData: ParsedData) {
     return parsedData.length ? parsedData[parsedData.length - 1] == 'OK' : false
 }
-function isError(parsedData: ParsedData) {
-    return parsedData.length ? parsedData[parsedData.length - 1] == 'ERROR' : false
+function isError(parsedData: ParsedData): ModemErrorRaw {
+    const field = parsedData.length && parsedData[parsedData.length - 1] ? parsedData[parsedData.length - 1].split(" ERROR: ") : null
+    if (field && field.length && field[0] == "+CME") {
+        // extracting message
+        field.splice(0, 1)
+        const message = field.length ? field.join(" ") : undefined
+        return { error: true, ...{ message } }
+    } else {
+        return { error: false }
+    }
 }
 
 //  ___  ___  ________  ________   ________  ___       _______   ________  ________      
@@ -382,7 +447,7 @@ function isError(parsedData: ParsedData) {
 
 const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
     try {
-        logger?.info("SIM800L: using default event handler")
+        logger?.info("SIM800L -  using default event handler")
         const parsedData = parseBuffer(buffer)
         // If it ends with okay, resolve
         if (isOk(parsedData)) {
@@ -399,7 +464,7 @@ const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: Even
             }
             job.ended = true
         }
-        if (isError(parsedData)) {
+        if (isError(parsedData).error) {
             if (job.callback) {
                 job.callback({
                     uuid: job.uuid,
@@ -407,7 +472,10 @@ const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: Even
                     result: 'failure',
                     error: {
                         type: "generic",
-                        content: parsedData
+                        content: {
+                            status: QueryStatus.ERROR,
+                            message: isError(parsedData).message
+                        }
                     }
                 })
             }
@@ -416,12 +484,11 @@ const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: Even
         // If callback, we need to resolve it somehow to allow the event loop to continue
     } catch (error: any) {
         job.ended = true
-        if (job.callback) { job.callback(null, new Error(error)) }
     }
 }
 const incomingHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console) => {
     try {
-        logger?.info("SIM800L: using incoming event handler")
+        logger?.info("SIM800L -  using incoming event handler")
         const parsedData = parseBuffer(buffer)
         // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
         // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events

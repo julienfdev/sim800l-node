@@ -114,13 +114,15 @@ export default class Sim800L {
             job.handler(this.dataBuffer, job, this.events, this.logger)
         } else {
             // This is incoming data, we need to create a job, unshift it and handle the data
-            this.queue.unshift({
+            const job = {
                 uuid: v4(),
                 handler: incomingHandler,
                 command: '',
                 type: 'incoming',
                 timeoutIdentifier: null
-            })
+            }
+            this.queue.unshift(job)
+            incomingHandler(this.dataBuffer, job, this.events, this.logger)
         }
         this.busy = false
         this.nextEvent()

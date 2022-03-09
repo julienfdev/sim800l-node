@@ -1,0 +1,12 @@
+{
+  "watch": [
+    "**/*"
+  ],
+  "ext": "ts",
+  "ignore": [
+    "**/*.spec.ts",
+    "node_modules",
+    "./src/private/**/*"
+  ],
+  "exec": "ts-node -r tsconfig-paths/register test.ts"
+}

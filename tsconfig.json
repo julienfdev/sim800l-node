@@ -1,11 +1,19 @@
 {
-    "compilerOptions": {
-      "target": "es6",
-      "module": "es6",
-      "declaration": true,
-      "outDir": "./lib",
-      "strict": true
+  "compilerOptions": {
+    "target": "es6",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "declaration": true,
+    "outDir": "./lib",
+    "strict": true,
+    "esModuleInterop": true,
+    "baseUrl": "./",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
     },
-    "include": ["src"],
-    "exclude": ["node_modules", "**/__tests__/*"]
-  }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "**/__tests__/*", "test.ts"],
+}

@@ -1,6 +1,6 @@
 {
   "name": "sim800l-node",
-  "version": "0.0.2",
+  "version": "0.2.0",
   "description": "a SIM800L interface for Node.js written in TypeScript. Inspired by serialport-gsm",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon",
     "build": "tsc",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json",
@@ -31,14 +32,19 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^17.0.21",
+    "@types/uuid": "^8.3.4",
     "nodemon": "^2.0.15",
     "prettier": "^2.5.1",
     "ts-node": "^10.7.0",
+    "tsconfig-paths": "^3.13.0",
     "tslint": "^6.1.3",
     "tslint-config-prettier": "^1.18.0",
-    "typescript": "^4.6.2"
+    "typescript": "^4.6.2",
+    "winston": "^3.6.0"
   },
   "dependencies": {
-    "serialport": "^10.4.0"
+    "pdu.ts": "^1.1.4",
+    "serialport": "^10.4.0",
+    "uuid": "^8.3.2"
   }
 }

@@ -2,21 +2,20 @@ import chalk from 'chalk';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
-import { JobHandler, ParsedData } from './models/JobHandler';
-import JobItem from './models/JobItem';
-import { DefaultFunctionSignature, ModemCallback } from './models/ModemCallback';
+import { JobHandler, ParsedData } from '@/models/types/JobHandler';
+import JobItem from '@/models/types/JobItem';
+import { DefaultFunctionSignature, ModemCallback } from '@/models/types/ModemCallback';
 import ModemResponse, {
   CheckModemResponse,
   CheckNetworkData,
   CheckPinStatus,
-  ConnectionAction,
   ConnectionStatus,
   InitializeResponse,
   InitializeStatus,
   ModemErrorRaw,
   QueryStatus,
-} from './models/ModemResponse';
-import SimConfig from './models/SimConfig';
+} from '@/models/types/ModemResponse';
+import SimConfig from '@/models/types/SimConfig';
 export default class Sim800L {
   public events = new EventEmitter();
   public simConfig: SimConfig = {
@@ -24,19 +23,31 @@ export default class Sim800L {
     deliveryReport: true,
     autoDeleteFromSim: true,
   };
-  public initialized = false;
-  public networkReady = false;
-  public networkRetry = 0;
-  public retryNumber = 0;
-  public resetNumber = 0;
-  public brownoutNumber = 0;
+  private initialized = false;
+  private networkReady = false;
+  private simUnlocked = false;
+  private networkRetry = 0;
+  private retryNumber = 0;
+  private resetNumber = 0;
+  private brownoutNumber = 0;
   private port: SerialPort;
   private queue: JobItem[] = [];
   private busy = false;
   private logger: Console;
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
-  private mailbox = []; // Store SMS here awaiting processing
+  private inbox = []; // Typing
+
+  // GETTERS
+  get isInitialized() {
+    return this.initialized;
+  }
+  get isNetworkReady() {
+    return this.networkReady;
+  }
+  get isSimUnlocked() {
+    return this.simUnlocked;
+  }
 
   /**
    * Creates an instance of Sim800L.
@@ -104,7 +115,7 @@ export default class Sim800L {
           return;
         }
         this.logger.info('SIM800L - enabling verbose mode ');
-        await this.execCommand(undefined, 'AT+CMEE=2', 'verbose');
+        await this.execCommand(null, 'AT+CMEE=2', 'verbose');
 
         const pinChecked = (await this.checkPinRequired()) as ModemResponse<CheckPinStatus>;
         if (!(pinChecked.result === 'success')) {
@@ -115,25 +126,27 @@ export default class Sim800L {
             return;
           }
           // We will try to unlock the SIM, once, emit an event and throw the hell out of the app if it does not work
-          const unlocked = (await this.unlockSim(undefined, this.simConfig.pin)) as ModemResponse;
+          const unlocked = (await this.unlockSim(null, this.simConfig.pin)) as ModemResponse;
           if (!(unlocked.result === 'success')) {
             this.events.emit('error', unlocked);
             callback(unlocked);
           }
         }
         // finally, we update the cnmi config
-        const updatedConfig = await this.updateCnmiConfig(undefined, this.simConfig.customCnmi!);
+        const updatedConfig = await this.updateCnmiConfig(null, this.simConfig.customCnmi!);
         if (!(updatedConfig.result === 'success')) {
           this.events.emit('error', updatedConfig);
           callback(updatedConfig);
         }
+        // And we set the SMS mode to PDU
+        await this.setSmsMode(null);
 
         // Holy cow
         this.initialized = true;
         this.logger.log(chalk.bgGreenBright.black('SIM800L - modem is initialized and ready! 👌'));
         this.events.emit('initialized');
         this.retryNumber = 0;
-        this.checkNetwork(undefined);
+        this.checkNetwork(null);
       } catch (error) {
         callback(null, new Error('unhandled initialization failure'));
         // Trying to reset
@@ -216,6 +229,7 @@ export default class Sim800L {
             keyFields.splice(0, 1);
             const key = keyFields.join(' ');
             const status = getInitializationStatus(key);
+            this.simUnlocked = status == InitializeStatus.READY;
             this.logger.info(`SIM800L - pin lock : ${getStatusMessage(status)} `);
             job.callback!({
               uuid: job.uuid,
@@ -267,7 +281,7 @@ export default class Sim800L {
       }
     }
   };
-  public unlockSim = async (callback: ModemCallback | undefined, pin: string) => {
+  public unlockSim = async (callback: ModemCallback | undefined | null, pin: string) => {
     if (typeof callback !== 'function') {
       return promisify(this.unlockSim, pin);
     } else {
@@ -332,7 +346,10 @@ export default class Sim800L {
       await this.execCommand(callback, `AT+CPIN=${pin}`, 'pin-unlock', handler);
     }
   };
-  public updateCnmiConfig = async (callback: ModemCallback | undefined, cnmi: string): Promise<ModemResponse> => {
+  public updateCnmiConfig = async (
+    callback: ModemCallback | undefined | null,
+    cnmi: string,
+  ): Promise<ModemResponse> => {
     if (typeof callback !== 'function') {
       return promisify(this.updateCnmiConfig, cnmi);
     } else {
@@ -341,7 +358,7 @@ export default class Sim800L {
       return (await this.execCommand(callback, `AT+CNMI=${cnmi}`, 'cnmi-config', handler)) as ModemResponse;
     }
   };
-  public resetModem = async (callback: ModemCallback | undefined, mode = '1,1', reInitialize = false) => {
+  public resetModem = async (callback: ModemCallback | undefined | null, mode = '1,1', reInitialize = false) => {
     if (typeof callback !== 'function') {
       return promisify(this.resetModem, mode, reInitialize);
     } else {
@@ -379,7 +396,7 @@ export default class Sim800L {
     }
   };
 
-  public checkNetwork = async (callback: ModemCallback | undefined, force = false) => {
+  public checkNetwork = async (callback: ModemCallback | undefined | null, force = false) => {
     if (typeof callback !== 'function') {
       return promisify(this.checkNetwork, force);
     } else {
@@ -451,12 +468,12 @@ export default class Sim800L {
     }
   };
 
-  public activateCReg = async (callback: ModemCallback | undefined) => {
+  public activateCReg = async (callback: ModemCallback | undefined | null) => {
     // TBD
   };
 
   public execCommand = (
-    callback: ModemCallback | undefined,
+    callback: ModemCallback | undefined | null,
     command: string,
     type: string,
     handler = defaultHandler,
@@ -479,6 +496,14 @@ export default class Sim800L {
     });
     // We cycle nextEvent()
     this.nextEvent();
+  };
+
+  private setSmsMode = async (callback: ModemCallback | undefined | null, mode = 0) => {
+    if (typeof callback !== 'function') {
+      return promisify(this.setSmsMode, mode);
+    } else {
+      return await this.execCommand(callback, 'AT+CMGF=0', 'set-sms-mode');
+    }
   };
 
   private handleIncomingData = (buffer: any) => {
@@ -599,6 +624,9 @@ export default class Sim800L {
           content: parseBuffer(this.dataBuffer),
         },
       } as ModemResponse<ParsedData>);
+    }
+    if (job) {
+      this.events.emit('timeout', job);
     }
     this.queue = this.queue.filter((item) => {
       return !(item.uuid === uuid);

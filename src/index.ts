@@ -817,7 +817,6 @@ export default class Sim800L extends EventEmitter {
         job.ended = true;
       }
       if (isDeliveryReport(parsedData)) {
-        console.log(buffer);
         // If CDS key is not the last key of the buffer, we can emit a DeliveryReportRawObject and end the job
         const cdsIndex = parsedData.findIndex((key) => {
           return key.startsWith('+CDS: ');

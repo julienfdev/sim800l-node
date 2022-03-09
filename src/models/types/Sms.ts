@@ -6,6 +6,7 @@ export enum SmsStatus {
   IDLE,
   SENDING,
   SENT,
+  DELIVERED,
   ERROR,
   UNKNOWN,
 }

@@ -200,7 +200,7 @@ export class Sms extends EventEmitter {
           return chunk.shortId === parser.reference;
         });
         if (part) {
-          part.status = SmsStatus.SENT;
+          part.status = SmsStatus.DELIVERED;
         }
         this._modem.execCommand(undefined, `AT+CMGD=${parser.reference}`, 'delete-delivery');
       }

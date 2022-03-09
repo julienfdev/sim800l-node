@@ -46,7 +46,7 @@ export class Sms extends EventEmitter {
       this._requestDeliveryReport = options.deliveryReport || this._requestDeliveryReport;
       this._smsc = options.smsc;
       this._autoSend = options.autoSend || this._autoSend;
-      this._id
+      this._id = options.customId || this._id;
     }
     this._modem = modem;
     this.logger = this._modem.logger;

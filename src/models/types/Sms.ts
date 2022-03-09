@@ -21,7 +21,7 @@ export type SmsPduChunk = {
 };
 
 export interface SmsCreationOptions {
-  customId: string;
+  customId?: string;
   numberFormat?: NumberType;
   smsc?: string;
   encoding?: SmsEncoding;

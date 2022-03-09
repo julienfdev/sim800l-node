@@ -6,7 +6,7 @@ import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
 import { JobHandler, ParsedData } from '@/models/types/JobHandler';
 import JobItem from '@/models/types/JobItem';
-import { DefaultFunctionSignature, ModemCallback } from '@/models/types/ModemCallback';
+import { CommandParams, ModemCallback, ModemFunction, PromisifyFunctionSignature } from '@/models/types/ModemCallback';
 import ModemResponse, {
   CheckModemResponse,
   CheckNetworkData,
@@ -84,7 +84,7 @@ export default class Sim800L extends EventEmitter {
       this.logger.info('==== SIM800L interface module ====  ');
       // Forwarding all events
       this.attachingEvents();
-      this.initialize();
+      this.initialize(null, {});
       this.brownoutDetector();
       this.logger.debug(`sim800l - instance created`);
     } catch (error) {
@@ -125,26 +125,24 @@ export default class Sim800L extends EventEmitter {
     return new Sms(receipient, text, options, this); // neat
   };
 
-  public initialize = async (
-    callback?: ModemCallback<InitializeResponse>,
-  ): Promise<ModemResponse<InitializeResponse> | void> => {
+  public initialize: ModemFunction<{}> = async (callback): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.initialize);
+      return promisify(this.initialize, {});
     } else {
       this.logger.info('Initializing modem');
       try {
         this.logger.verbose(`initialize - checking if modem is online`);
-        const modemChecked = (await this.checkModem()) as ModemResponse<CheckModemResponse>;
+        const modemChecked = await this.checkModem(null, {});
         if (!(modemChecked.result === 'success')) {
           this.emit('error', modemChecked);
           callback(modemChecked);
           return;
         }
         this.logger.verbose(`initialize - enabling modem verbose mode `);
-        await this.execCommand(null, 'AT+CMEE=2', 'verbose');
+        await this.execCommand(null, { command: 'AT+CMEE=2', type: 'verbose' });
 
         this.logger.verbose('initialize - checking if pin is required');
-        const pinChecked = (await this.checkPinRequired()) as ModemResponse<CheckPinStatus>;
+        const pinChecked = (await this.checkPinRequired(null, {})) as ModemResponse<CheckPinStatus>;
         if (!(pinChecked.result === 'success')) {
           // We switch, if !NEED_PIN we can callback and return
           if (!(pinChecked.error?.content.status === InitializeStatus.NEED_PIN) || !this.simConfig.pin) {
@@ -154,7 +152,7 @@ export default class Sim800L extends EventEmitter {
           }
           // We will try to unlock the SIM, once, emit an event and throw the hell out of the app if it does not work
           this.logger.verbose('initialize - unlocking SIM');
-          const unlocked = (await this.unlockSim(null, this.simConfig.pin)) as ModemResponse;
+          const unlocked = (await this.unlockSim(null, { pin: this.simConfig.pin })) as ModemResponse;
           if (!(unlocked.result === 'success')) {
             this.logger.error(`initialize - unable to unlock SIM, ${unlocked.error?.content.message}`);
             this.emit('error', unlocked);
@@ -162,14 +160,16 @@ export default class Sim800L extends EventEmitter {
           }
         }
         // finally, we update the cnmi config
-        const updatedConfig = await this.updateCnmiConfig(null, this.simConfig.customCnmi!);
-        if (!(updatedConfig.result === 'success')) {
-          this.logger.error('initialize - unable to upload CNMI config');
-          this.emit('error', updatedConfig);
-          callback(updatedConfig);
+        if (this.simConfig.customCnmi) {
+          const updatedConfig = await this.updateCnmiConfig(null, { cnmi: this.simConfig.customCnmi });
+          if (!(updatedConfig.result === 'success')) {
+            this.logger.error('initialize - unable to upload CNMI config');
+            this.emit('error', updatedConfig);
+            callback(updatedConfig);
+          }
         }
         // And we set the SMS mode to PDU
-        await this.setSmsMode(null);
+        this.setSmsMode(null, {});
 
         // Holy cow
         this.initialized = true;
@@ -177,23 +177,21 @@ export default class Sim800L extends EventEmitter {
         this.emit('initialized');
         this.retryNumber = 0;
         this.resetNumber = 0;
-        this.checkNetwork(null);
+        this.checkNetwork(null, {});
       } catch (error) {
         this.logger.error('initialize - unhandled initialization failure');
         callback(null, new Error('unhandled initialization failure'));
         // Trying to reset
         this.retryNumber += 1;
-        if (this.retryNumber < 3) this.resetModem(undefined, undefined, true);
+        if (this.retryNumber < 3) this.resetModem(null, { reInitialize: true });
       }
     }
     return;
   };
 
-  public checkModem = async (
-    callback?: ModemCallback<InitializeResponse>,
-  ): Promise<ModemResponse<CheckModemResponse> | void> => {
+  public checkModem: ModemFunction<{}, CheckModemResponse> = async (callback): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.checkModem);
+      return promisify(this.checkModem, {});
     } else {
       this.logger.verbose(`checkmodem - checking modem connection`);
       try {
@@ -229,18 +227,17 @@ export default class Sim800L extends EventEmitter {
           }
         };
         // Exec command AT
-        await this.execCommand(callback, 'AT', 'check-modem', handler);
+        this.execCommand(callback, { command: 'AT', type: 'check-modem', handler });
       } catch (error: any) {
         this.logger.error('checkmodem - unhandled modem check failure');
         callback(null, new Error(error || 'unhandled modem check failure'));
       }
     }
   };
-  public checkPinRequired = async (
-    callback?: ModemCallback<InitializeResponse>,
-  ): Promise<ModemResponse<CheckPinStatus> | void> => {
+
+  public checkPinRequired: ModemFunction<{}> = async (callback): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.checkPinRequired);
+      return promisify(this.checkPinRequired, {});
     } else {
       try {
         this.logger.verbose(`checkpinrequired - checking pin lock status`);
@@ -319,7 +316,7 @@ export default class Sim800L extends EventEmitter {
             job.ended = true;
           }
         };
-        await this.execCommand(callback, 'AT+CPIN?', 'check-pin', handler);
+        this.execCommand(callback, { command: 'AT+CPIN?', type: 'check-pin', handler });
       } catch (error: any) {
         this.logger.error(`checkpinrequired - unhandled pin check failure`);
         callback(null, new Error(error || 'unhandled pin check failure'));
@@ -327,9 +324,9 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
-  public unlockSim = async (callback: ModemCallback | undefined | null, pin: string) => {
+  public unlockSim: ModemFunction<{ pin: string }> = async (callback, { pin }): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.unlockSim, pin);
+      return promisify(this.unlockSim, { pin });
     } else {
       this.logger.verbose('unlocksim - unlocking SIM');
       const handler: JobHandler = (buffer, job) => {
@@ -391,24 +388,24 @@ export default class Sim800L extends EventEmitter {
           job.ended = true;
         }
       };
-      await this.execCommand(callback, `AT+CPIN=${pin}`, 'pin-unlock', handler);
+      this.execCommand(callback, { command: `AT+CPIN=${pin}`, type: 'pin-unlock', handler });
     }
   };
-  public updateCnmiConfig = async (
-    callback: ModemCallback | undefined | null,
-    cnmi: string,
-  ): Promise<ModemResponse> => {
+  public updateCnmiConfig: ModemFunction<{ cnmi: string }> = async (callback, { cnmi }): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.updateCnmiConfig, cnmi);
+      return promisify(this.updateCnmiConfig, { cnmi });
     } else {
       this.logger.verbose(`updatecnmiconfig - updating CNMI config with values ${cnmi}`);
       const handler = defaultHandler; // We just need an OK or ERROR, defaultHandler is perfect for that
-      return (await this.execCommand(callback, `AT+CNMI=${cnmi}`, 'cnmi-config', handler)) as ModemResponse;
+      this.execCommand(callback, { command: `AT+CNMI=${cnmi}`, type: 'cnmi-config', handler });
     }
   };
-  public resetModem = async (callback: ModemCallback | undefined | null, mode = '1,1', reInitialize = false) => {
+  public resetModem: ModemFunction<{ mode?: string; reInitialize: boolean }> = async (
+    callback: ModemCallback | undefined | null,
+    { mode = '1,1', reInitialize = false },
+  ): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.resetModem, mode, reInitialize);
+      return promisify(this.resetModem, { mode, reInitialize });
     } else {
       // if too many retry, we throw
       if (this.resetNumber > 5) {
@@ -423,7 +420,7 @@ export default class Sim800L extends EventEmitter {
           this.logger.warn(`resetmodem - modem has reset`);
           job.ended = true;
           this.queue = [];
-          if (reInitialize) this.initialize();
+          if (reInitialize) this.initialize(null, {});
           callback({
             uuid: job.uuid,
             type: job.type,
@@ -432,9 +429,9 @@ export default class Sim800L extends EventEmitter {
         }, 6000);
       };
       // in case we're hanging on a sms query, sending the escape key
-      await this.execCommand(undefined, '\r' + String.fromCharCode(27), 'reset-sms', undefined, true);
+      this.execCommand(null, { command: '\r' + String.fromCharCode(27), type: 'reset-sms', immediate: true });
       // calling the reset vector
-      await this.execCommand(callback, `AT+CFUN=${mode}`, 'reset', handler);
+      this.execCommand(callback, { command: `AT+CFUN=${mode}`, type: 'reset', handler });
       this.logger.warn(`resetmodem - modem is resetting...`);
 
       this.resetNumber += 1;
@@ -447,9 +444,12 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
-  public checkNetwork = async (callback: ModemCallback | undefined | null, force = false) => {
+  public checkNetwork: ModemFunction<{ force?: boolean }> = async (
+    callback: ModemCallback | undefined | null,
+    { force = false },
+  ): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.checkNetwork, force);
+      return promisify(this.checkNetwork, { force });
     } else {
       this.logger.verbose(`checknetwork - getting carrier registration status`);
       const handler: JobHandler = (buffer, job) => {
@@ -520,26 +520,28 @@ export default class Sim800L extends EventEmitter {
           return;
         }
       };
-      return await this.execCommand(callback, 'AT+CREG?', 'check-network', handler);
+      return this.execCommand(callback, { command: 'AT+CREG?', type: 'check-network', handler });
     }
   };
 
-  public activateCReg = async (callback: ModemCallback | undefined | null) => {
+  public activateCReg: ModemFunction = async (callback): Promise<any> => {
     // TBD
   };
 
-  public execCommand = (
-    callback: ModemCallback | undefined | null,
-    command: string,
-    type: string,
-    handler = defaultHandler,
-    immediate = false,
-    timeout?: number,
-    subcommands = [] as string[],
-    reference?: string,
-  ): Promise<ModemResponse> | void => {
+  public execCommand: ModemFunction<CommandParams> = (
+    callback,
+    {
+      command,
+      type,
+      handler = defaultHandler,
+      immediate = false,
+      subcommands = [],
+      reference,
+      timeout,
+    },
+  ): any => {
     if (typeof callback !== 'function') {
-      return promisify(this.execCommand, command, type, handler, immediate);
+      return promisify(this.execCommand, { command, type, handler, immediate });
     }
     const uuid = v4();
     this.logger.debug(
@@ -574,12 +576,12 @@ export default class Sim800L extends EventEmitter {
     // We cycle nextEvent()
   };
 
-  private setSmsMode = async (callback: ModemCallback | undefined | null, mode = 0) => {
+  private setSmsMode: ModemFunction<{ mode?: number }> = async (callback, { mode = 0 }): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.setSmsMode, mode);
+      return promisify(this.setSmsMode, { mode });
     } else {
       this.logger.verbose(`setsmsmode - setting ${mode === 0 ? 'PDU' : 'TEXT'} mode`);
-      return await this.execCommand(callback, 'AT+CMGF=0', 'set-sms-mode');
+      this.execCommand(callback, { command: 'AT+CMGF=0', type: 'set-sms-mode' });
     }
   };
 
@@ -775,13 +777,13 @@ export default class Sim800L extends EventEmitter {
     }
     if (this.networkRetry > 3) {
       this.logger.warn(`networkhandler - network is hanging, resetting`);
-      this.resetModem(undefined, undefined, true);
+      this.resetModem(null, { reInitialize: true });
     }
   };
 
   private brownoutHandler = () => {
     if (this.brownoutNumber > 3) {
-      this.resetModem(undefined, undefined, true);
+      this.resetModem(null, { reInitialize: true });
     }
     this.logger.warn('brownout - modem is unreachable, retrying');
     this.logger.verbose(`brownout - ${4 - this.brownoutNumber} checks remaining before modem reset`);
@@ -796,13 +798,13 @@ export default class Sim800L extends EventEmitter {
     return setInterval(async () => {
       if (this.initialized) {
         // preventing to clutter the networkRetry when modem isn't initialized
-        await this.checkNetwork(undefined);
+        this.checkNetwork(null, {});
       }
     }, 30000);
   }
   private brownoutDetector() {
     return setInterval(async () => {
-      const result = await this.checkModem(undefined);
+      const result = await this.checkModem(null, {});
       if ((result as ModemResponse).result === 'failure' || !this.initialized) {
         this.emit('brownout');
       } else {
@@ -847,7 +849,7 @@ export default class Sim800L extends EventEmitter {
       }
       if (isNetworkInfo(parsedData)) {
         logger?.debug('incominghandler - +CREG information, checking status');
-        this.checkNetwork(undefined);
+        this.checkNetwork(null, {});
         // CALLBACK
         job.ended = true;
       }
@@ -866,7 +868,10 @@ export default class Sim800L extends EventEmitter {
 //    |\_________\|_______|\|__|     \|__|     \|_______|\|__|\|__|    \|__|
 //    \|_________|
 
-export function promisify(functionSignature: DefaultFunctionSignature, ...args: any[]): Promise<ModemResponse> {
+export const promisify: PromisifyFunctionSignature = <T>(
+  functionSignature: ModemFunction<T>,
+  options: T,
+): Promise<ModemResponse> => {
   return new Promise((resolve, reject) => {
     functionSignature((result, err) => {
       if (err) {
@@ -874,9 +879,9 @@ export function promisify(functionSignature: DefaultFunctionSignature, ...args: 
       } else if (result) {
         resolve(result);
       }
-    }, ...args);
+    }, options);
   });
-}
+};
 
 function getStatusMessage(status: InitializeStatus): string {
   switch (status) {

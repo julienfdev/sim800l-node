@@ -11,9 +11,9 @@ import {
 } from './types/Sms';
 import { pduMessage, PDUParser } from 'pdu.ts';
 import { v4 } from 'uuid';
-import { JobHandler, ParsedData } from './types/JobHandler';
+import { JobHandler } from './types/JobHandler';
 import Logger from './types/Logger';
-import { ModemCallback } from './types/ModemCallback';
+import { ModemFunction } from './types/ModemCallback';
 import ModemResponse from './types/ModemResponse';
 
 export class Sms extends EventEmitter {
@@ -99,7 +99,7 @@ export class Sms extends EventEmitter {
       for (const part of this._data) {
         this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
         part.status = SmsStatus.SENDING;
-        this.sendPart(null, part).then((data: ModemResponse | void) => {
+        this.sendPart(null, { part }).then((data: ModemResponse | void) => {
           // TBD if needed
         });
       }
@@ -113,20 +113,18 @@ export class Sms extends EventEmitter {
     return parser.Generate(data) as unknown[] as SmsPduData[];
   };
 
-  private sendPart = async (callback: null | undefined | ModemCallback, part: SmsPduChunk) => {
+  private sendPart: ModemFunction<{ part: SmsPduChunk }> = async (callback, { part }): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.sendPart, part);
+      return promisify(this.sendPart, { part });
     } else {
-      return await this._modem.execCommand(
-        callback,
-        `AT+CMGS=${part.data.tpdu_length}`,
-        'sms-send',
-        this.smsHandler,
-        false,
-        20000,
-        [`${part.data.smsc_tpdu}${String.fromCharCode(26)}`],
-        part.id,
-      );
+      this._modem.execCommand(callback, {
+        command: `AT+CMGS=${part.data.tpdu_length}`,
+        type: 'sms-send',
+        handler: this.smsHandler,
+        timeout: 20000,
+        subcommands: [`${part.data.smsc_tpdu}${String.fromCharCode(26)}`],
+        reference: part.id,
+      });
     }
   };
 
@@ -202,7 +200,7 @@ export class Sms extends EventEmitter {
         if (part) {
           part.status = SmsStatus.DELIVERED;
         }
-        this._modem.execCommand(undefined, `AT+CMGD=${parser.reference}`, 'delete-delivery');
+        this._modem.execCommand(null, { command: `AT+CMGD=${parser.reference}`, type: 'delete-delivery' });
       }
     } catch (error) {
       this.logger.error(`Ïdeliveryhandler - parse error ${error}`);

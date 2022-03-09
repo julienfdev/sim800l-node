@@ -65,7 +65,7 @@ export default class Sim800L {
       this.attachingEvents();
       this.initialize();
       this.brownoutDetector();
-      this.logger.debug('SIM800L - instance created');
+      this.logger.debug(`${new Date().toISOString()} - SIM800L - instance created`);
     } catch (error) {
       throw error;
     }
@@ -91,12 +91,12 @@ export default class Sim800L {
   public close(): void {
     try {
       this.initialized = false;
-      this.logger.log('SIM800L - closing serial port');
+      this.logger.log(`${new Date().toISOString()} - SIM800L - closing serial port`);
       this.port.close();
-      this.logger.debug('SIM800L - serial port closed');
+      this.logger.debug(`${new Date().toISOString()} - SIM800L - serial port closed`);
     } catch (error) {
       this.initialized = false;
-      this.logger.error(chalk.bgRedBright.black('SIM800L - unable to close serial port'));
+      this.logger.error(chalk.bgRedBright.black(`${new Date().toISOString()} - SIM800L - unable to close serial port`));
       throw error;
     }
   }
@@ -107,14 +107,14 @@ export default class Sim800L {
       return promisify(this.initialize);
     } else {
       try {
-        this.logger.info('SIM800L - checking if modem is online');
+        this.logger.info(`${new Date().toISOString()} - SIM800L - checking if modem is online`);
         const modemChecked = (await this.checkModem()) as ModemResponse<CheckModemResponse>;
         if (!(modemChecked.result === 'success')) {
           this.events.emit('error', modemChecked);
           callback(modemChecked);
           return;
         }
-        this.logger.info('SIM800L - enabling verbose mode ');
+        this.logger.info(`${new Date().toISOString()} - SIM800L - enabling verbose mode `);
         await this.execCommand(null, 'AT+CMEE=2', 'verbose');
 
         const pinChecked = (await this.checkPinRequired()) as ModemResponse<CheckPinStatus>;
@@ -143,7 +143,7 @@ export default class Sim800L {
 
         // Holy cow
         this.initialized = true;
-        this.logger.log(chalk.bgGreenBright.black('SIM800L - modem is initialized and ready! 👌'));
+        this.logger.log(chalk.bgGreenBright.black(`${new Date().toISOString()} - SIM800L - modem is initialized and ready! 👌`));
         this.events.emit('initialized');
         this.retryNumber = 0;
         this.checkNetwork(null);
@@ -163,12 +163,12 @@ export default class Sim800L {
     if (typeof callback !== 'function') {
       return promisify(this.checkModem);
     } else {
-      this.logger.log('SIM800L - checking modem connection');
+      this.logger.log(`${new Date().toISOString()} - SIM800L - checking modem connection`);
       try {
         // We define the handler, which will search of an OK end of query
         const handler: JobHandler = (buffer, job) => {
           if (isOk(parseBuffer(buffer))) {
-            this.logger.info('SIM800L - modem online');
+            this.logger.info(`${new Date().toISOString()} - SIM800L - modem online`);
             job.callback!({
               uuid: job.uuid,
               type: job.type,
@@ -183,7 +183,7 @@ export default class Sim800L {
             });
             job.ended = true;
           } else if (isError(parseBuffer(buffer)).error) {
-            this.logger.error(chalk.bgRedBright.black('SIM800L - modem error'));
+            this.logger.error(chalk.bgRedBright.black(`${new Date().toISOString()} - SIM800L - modem error`));
             job.callback!({
               uuid: job.uuid,
               type: job.type,
@@ -210,7 +210,7 @@ export default class Sim800L {
       return promisify(this.checkPinRequired);
     } else {
       try {
-        this.logger.log('SIM800L - checking pin lock status');
+        this.logger.log(`${new Date().toISOString()} - SIM800L - checking pin lock status`);
         const handler: JobHandler = (buffer, job) => {
           const parsedBuffer = parseBuffer(buffer);
           if (isOk(parsedBuffer)) {
@@ -230,7 +230,7 @@ export default class Sim800L {
             const key = keyFields.join(' ');
             const status = getInitializationStatus(key);
             this.simUnlocked = status == InitializeStatus.READY;
-            this.logger.info(`SIM800L - pin lock : ${getStatusMessage(status)} `);
+            this.logger.info(`${new Date().toISOString()} - SIM800L - pin lock : ${getStatusMessage(status)} `);
             job.callback!({
               uuid: job.uuid,
               type: 'pin-check',
@@ -259,7 +259,7 @@ export default class Sim800L {
             job.ended = true;
           }
           if (isError(parsedBuffer).error) {
-            this.logger.error(chalk.bgRedBright.black('SIM800L - pin lock : sim error'));
+            this.logger.error(chalk.bgRedBright.black(`${new Date().toISOString()} - SIM800L - pin lock : sim error`));
             job.callback!({
               uuid: job.uuid,
               type: job.type,
@@ -289,7 +289,7 @@ export default class Sim800L {
         const parsedBuffer = parseBuffer(buffer);
         if (isError(parsedBuffer).error) {
           // pin is probably wrong, we need to callback
-          this.logger.error(chalk.bgRedBright.black('SIM800L - WRONG PIN ! CHECK PIN ASAP'));
+          this.logger.error(chalk.bgRedBright.black(`${new Date().toISOString()} - SIM800L - WRONG PIN ! CHECK PIN ASAP`));
           job.callback!({
             uuid: job.uuid,
             type: job.type,
@@ -305,7 +305,7 @@ export default class Sim800L {
         }
         // if not error, it can be "okay", we just log it as we're waiting for the +CPIN info
         if (isOk(parsedBuffer)) {
-          this.logger.info('SIM800L - pin accepted, waiting for unlock');
+          this.logger.info(`${new Date().toISOString()} - SIM800L - pin accepted, waiting for unlock`);
         }
         // Now, we're looking into the last part of parsedData and search for "+CPIN: "
         if (parsedBuffer.length && parsedBuffer[parsedBuffer.length - 1].startsWith('+CPIN: ')) {
@@ -314,7 +314,7 @@ export default class Sim800L {
             ? parsedBuffer[parsedBuffer.length - 1].split('+CPIN: ')[1]
             : null;
           const status = key ? getInitializationStatus(key) : InitializeStatus.ERROR;
-          this.logger.info(`SIM800L - pin lock : ${getStatusMessage(status)} `);
+          this.logger.info(`${new Date().toISOString()} - SIM800L - pin lock : ${getStatusMessage(status)} `);
           job.callback!({
             uuid: job.uuid,
             type: 'pin-check',
@@ -353,7 +353,7 @@ export default class Sim800L {
     if (typeof callback !== 'function') {
       return promisify(this.updateCnmiConfig, cnmi);
     } else {
-      this.logger.log(`SIM800L - updating CNMI config with values ${cnmi}`);
+      this.logger.log(`${new Date().toISOString()} - SIM800L - updating CNMI config with values ${cnmi}`);
       const handler = defaultHandler; // We just need an OK or ERROR, defaultHandler is perfect for that
       return (await this.execCommand(callback, `AT+CNMI=${cnmi}`, 'cnmi-config', handler)) as ModemResponse;
     }
@@ -367,11 +367,11 @@ export default class Sim800L {
         throw new Error('Too many retries');
       }
       //
-      this.logger.warn(chalk.bgYellowBright.black('SIM800L - modem will reset'));
+      this.logger.warn(chalk.bgYellowBright.black(`${new Date().toISOString()} - SIM800L - modem will reset`));
       const handler: JobHandler = (buffer, job) => {
         // Very simple handler, once called, it just sets a timeout of a few seconds resetting the whole object
         setTimeout(() => {
-          this.logger.warn(chalk.bgYellowBright.black('SIM800L - modem is reset'));
+          this.logger.warn(chalk.bgYellowBright.black(`${new Date().toISOString()} - SIM800L - modem is reset`));
           job.ended = true;
           this.queue = [];
           if (reInitialize) this.initialize();
@@ -392,7 +392,7 @@ export default class Sim800L {
       this.brownoutNumber = 0;
       this.networkReady = false;
       this.dataBuffer = '';
-      this.logger.warn(chalk.bgYellowBright.black('SIM800L - modem is resetting... please wait...'));
+      this.logger.warn(chalk.bgYellowBright.black(`${new Date().toISOString()} - SIM800L - modem is resetting... please wait...`));
     }
   };
 
@@ -400,7 +400,7 @@ export default class Sim800L {
     if (typeof callback !== 'function') {
       return promisify(this.checkNetwork, force);
     } else {
-      this.logger.log('SIM800L: getting carrier reg status');
+      this.logger.log(`${new Date().toISOString()} - SIM800L - getting carrier reg status`);
       const handler: JobHandler = (buffer, job) => {
         const parsedBuffer = parseBuffer(buffer);
         // Checks if parsedBuffer bears network info
@@ -482,7 +482,7 @@ export default class Sim800L {
     if (typeof callback !== 'function') {
       return promisify(this.execCommand, command, type, handler);
     }
-    this.logger.log(`SIM800L - queuing command ${command.length > 15 ? `${command.substring(0, 15)}...` : command} `);
+    this.logger.log(`${new Date().toISOString()} - SIM800L - queuing command ${command.length > 15 ? `${command.substring(0, 15)}...` : command} `);
     // We create a queue item
     this.queue.push({
       uuid: v4(),
@@ -535,14 +535,14 @@ export default class Sim800L {
     this.nextEvent();
   };
   private nextEvent() {
-    this.logger.info(`SIM800L - current queue length - ${this.queue.length}`);
+    this.logger.info(`${new Date().toISOString()} - SIM800L - current queue length - ${this.queue.length}`);
     if (!this.queue.length) {
       return;
     }
     // if the job has ended, we clear it
     const job = this.queue[0];
     if (job.ended) {
-      this.logger.info(`SIM800L - job ${job.uuid} has ended and will be wiped out of existence`);
+      this.logger.info(`${new Date().toISOString()} - SIM800L - job ${job.uuid} has ended and will be wiped out of existence`);
       this.clear();
       return;
     }
@@ -555,10 +555,10 @@ export default class Sim800L {
 
     // setting the 10s timeout
     if (!job.timeoutIdentifier) {
-      this.logger.info(`SIM800L - processing event #${job.uuid}`);
+      this.logger.info(`${new Date().toISOString()} - SIM800L - processing event #${job.uuid}`);
       // If we're here, this is the first time we process this event
       job.timeoutIdentifier = setTimeout(() => {
-        this.logger.debug(`SIM800L - preparing to cancel job #${job.uuid}`);
+        this.logger.debug(`${new Date().toISOString()} - SIM800L - preparing to cancel job #${job.uuid}`);
         this.cancelEvent(job.uuid);
       }, job.overrideTimeout || 15000);
       if (job.command) {
@@ -577,18 +577,18 @@ export default class Sim800L {
     this.busy = false;
   }
   private attachingEvents() {
-    this.logger.info('SIM800L - attaching serialport events');
+    this.logger.info(`${new Date().toISOString()} - SIM800L - attaching serialport events`);
     this.port.on('open', () => {
       this.events.emit('open');
     });
     this.port.on('data', this.handleIncomingData);
-    this.logger.debug('SIM800L - serialport events attached');
+    this.logger.debug(`${new Date().toISOString()} - SIM800L - serialport events attached`);
     // this.events.on('initialized', () => {});
     this.events.on('network', this.networkInternalHandler);
     this.events.on('brownout', this.brownoutHandler);
   }
   private cancelEvent(uuid: string) {
-    this.logger.warn(`SIM800L - ${uuid} - TIMEOUT`);
+    this.logger.warn(`${new Date().toISOString()} - SIM800L - ${uuid} - TIMEOUT`);
     // Find the job and calling its callback with the Error timeout
     const job = this.queue.find((queuedJob) => {
       return queuedJob.uuid === uuid;
@@ -646,13 +646,13 @@ export default class Sim800L {
   }
 
   private networkInternalHandler = (network: CheckNetworkData) => {
-    this.logger.log(`SIM800L: network-event, status: ${network.networkStatus}`);
+    this.logger.log(`${new Date().toISOString()} - SIM800L - network-event, status: ${network.networkStatus}`);
     if (!this.networkMonitorInterval) {
-      this.logger.info('SIM800L: now monitoring network events');
+      this.logger.info(`${new Date().toISOString()} - SIM800L - now monitoring network events`);
       this.networkMonitorInterval = this.setupNetworkMonitor();
     }
     if ([ConnectionStatus.REGISTERED, ConnectionStatus.ROAMING].includes(network.networkStatus) && !this.networkReady) {
-      this.logger.log('SIM800L: network is ready');
+      this.logger.log(`${new Date().toISOString()} - SIM800L - network is ready`);
       this.networkReady = true;
     }
     if (
@@ -661,20 +661,20 @@ export default class Sim800L {
       ) &&
       this.networkReady
     ) {
-      this.logger.log(`SIM800L - network issue, status: ${network.networkStatus}, ${4 - this.networkRetry} remaining`);
+      this.logger.log(`${new Date().toISOString()} - SIM800L - network issue, status: ${network.networkStatus}, ${4 - this.networkRetry} remaining`);
       this.networkReady = false;
       this.networkRetry += 1;
     } else {
       if (this.networkReady) {
-        this.logger.debug('SIM800L - network: everything is fine');
+        this.logger.debug(`${new Date().toISOString()} - SIM800L - network: everything is fine`);
         this.networkRetry = 0;
       } else {
         this.networkRetry += 1;
-        this.logger.info(`SIM800L - waiting for network, ${4 - this.networkRetry} remaining`);
+        this.logger.info(`${new Date().toISOString()} - SIM800L - waiting for network, ${4 - this.networkRetry} remaining`);
       }
     }
     if (this.networkRetry > 3) {
-      this.logger.warn(chalk.bgYellowBright.black('SIM800 - network hanging, trying to reset'));
+      this.logger.warn(chalk.bgYellowBright.black(`SIM800 - network hanging, trying to reset`));
       this.resetModem(undefined, undefined, true);
     }
   };
@@ -712,12 +712,12 @@ export default class Sim800L {
     logger?: Console,
   ) => {
     try {
-      logger?.info('SIM800L - using incoming event handler');
+      logger?.info(`${new Date().toISOString()} - SIM800L - using incoming event handler`);
       const parsedData = parseBuffer(buffer);
       // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
       // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
       if (isNetworkReadyIncomingBuffer(parsedData)) {
-        logger?.log('SIM800L - incoming network confirmation, updating');
+        logger?.log(`${new Date().toISOString()} - SIM800L - incoming network confirmation, updating`);
         if (emitter) {
           emitter.emit('network', { networkStatus: ConnectionStatus.REGISTERED });
         }
@@ -836,7 +836,7 @@ function findKey(parsedData: ParsedData, key: string) {
 
 const defaultHandler: JobHandler = (buffer: string, job: JobItem, emitter?: EventEmitter, logger?: Console): void => {
   try {
-    logger?.info('SIM800L - using default event handler');
+    logger?.info(`${new Date().toISOString()} - SIM800L - using default event handler`);
     const parsedData = parseBuffer(buffer);
     // If it ends with okay, resolve
     if (isOk(parsedData)) {

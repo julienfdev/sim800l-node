@@ -17,6 +17,8 @@ import ModemResponse, {
 } from '@/models/types/ModemResponse';
 import SimConfig from '@/models/types/SimConfig';
 import Logger from './models/types/Logger';
+import InboundSms from './models/InboundSms';
+import { nextTick } from 'process';
 export default class Sim800L {
   public events = new EventEmitter();
   public simConfig: SimConfig = {
@@ -37,8 +39,7 @@ export default class Sim800L {
   private logger: Logger = { error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {} };
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
-  private inbox = []; // Typing
-  private outbox = []; // Typing
+  private inbox: InboundSms[] = [];
 
   // GETTERS
   get isInitialized() {
@@ -508,6 +509,7 @@ export default class Sim800L {
     command: string,
     type: string,
     handler = defaultHandler,
+    immediate = false,
     timeout?: number,
   ): Promise<ModemResponse> | void => {
     if (typeof callback !== 'function') {
@@ -520,7 +522,7 @@ export default class Sim800L {
       }`,
     );
     // We create a queue item
-    this.queue.push({
+    const item = {
       uuid,
       callback,
       handler,
@@ -529,9 +531,23 @@ export default class Sim800L {
       timeoutIdentifier: null,
       overrideTimeout: timeout,
       ended: false,
-    });
+    };
+    if (!immediate) {
+      this.queue.push(item);
+      this.nextEvent();
+    } else {
+      // current queue item must have ended or not started yet
+      this.logger.debug(`execcommand - trying to execute command now`);
+      const canUnshift = !this.queue.length || this.queue[0].ended || !this.queue[0].timeoutIdentifier;
+      if (canUnshift) {
+        this.queue.unshift(item);
+        nextTick(() => {
+          this.logger.debug(`execcommand - executing command instantly`);
+          this.nextEvent()
+        });
+      }
+    }
     // We cycle nextEvent()
-    this.nextEvent();
   };
 
   private setSmsMode = async (callback: ModemCallback | undefined | null, mode = 0) => {
@@ -640,7 +656,7 @@ export default class Sim800L {
   }
   private cancelEvent(uuid: string) {
     this.logger.verbose(`timeout - event ${uuid.split('-')[0]} has timed out`);
-    this.logger.debug(`timeout - raw buffer at timeout : ${this.dataBuffer}`);
+    this.logger.debug(`timeout - raw buffer at timeout : ${this.dataBuffer.replace(/(\r\n)|[\r\n]{1}/g, ' | ')}`);
     // Find the job and calling its callback with the Error timeout
     const job = this.queue.find((queuedJob) => {
       return queuedJob.uuid === uuid;
@@ -782,6 +798,9 @@ export default class Sim800L {
         // console.log(parsedData);
         job.ended = true;
       }
+      //
+      // IF DELIVERY REPORT - BROADCAST RAW DATA
+      //
       if (isNetworkInfo(parsedData)) {
         logger?.debug('incominghandler - +CREG information, checking status');
         this.checkNetwork(undefined);
@@ -848,6 +867,9 @@ function parseBuffer(buffer: string): string[] {
 }
 function isOk(parsedData: ParsedData) {
   return parsedData.length ? parsedData[parsedData.length - 1] === 'OK' : false;
+}
+function isWaitingForInput(parsedData: ParsedData) {
+  return parsedData.length ? parsedData[parsedData.length - 1].startsWith('>') : false;
 }
 function isError(parsedData: ParsedData): ModemErrorRaw {
   const field =

@@ -1,4 +1,6 @@
 export { Sms } from '@/models/Sms';
+import { Sms } from '@/models/Sms';
+import { SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
@@ -18,9 +20,8 @@ import ModemResponse, {
 import SimConfig from '@/models/types/SimConfig';
 import Logger from './models/types/Logger';
 import InboundSms from './models/InboundSms';
-import { nextTick } from 'process';
-export default class Sim800L {
-  public events = new EventEmitter();
+
+export default class Sim800L extends EventEmitter {
   public simConfig: SimConfig = {
     customCnmi: '2,1,2,1,0',
     deliveryReport: true,
@@ -58,6 +59,7 @@ export default class Sim800L {
    * @memberof Sim800L
    */
   constructor(options: SerialPortOpenOptions<any>, simConfig: SimConfig) {
+    super();
     try {
       // parsing the options (setting autoOpen to false in the meantime)
       this.port = new SerialPort(options as SerialPortOpenOptions<any>);
@@ -90,7 +92,6 @@ export default class Sim800L {
    *
    * @memberof Sim800L
    */
-
   public close(): void {
     try {
       this.initialized = false;
@@ -103,6 +104,11 @@ export default class Sim800L {
       throw error;
     }
   }
+
+  public createSms = (number: string, text: string, options = {} as SmsCreationOptions) => {
+    return new Sms(number, text, options, this); // neat
+  };
+
   public initialize = async (
     callback?: ModemCallback<InitializeResponse>,
   ): Promise<ModemResponse<InitializeResponse> | void> => {
@@ -114,7 +120,7 @@ export default class Sim800L {
         this.logger.verbose(`initialize - checking if modem is online`);
         const modemChecked = (await this.checkModem()) as ModemResponse<CheckModemResponse>;
         if (!(modemChecked.result === 'success')) {
-          this.events.emit('error', modemChecked);
+          this.emit('error', modemChecked);
           callback(modemChecked);
           return;
         }
@@ -126,7 +132,7 @@ export default class Sim800L {
         if (!(pinChecked.result === 'success')) {
           // We switch, if !NEED_PIN we can callback and return
           if (!(pinChecked.error?.content.status === InitializeStatus.NEED_PIN) || !this.simConfig.pin) {
-            this.events.emit('error', pinChecked);
+            this.emit('error', pinChecked);
             callback(pinChecked);
             return;
           }
@@ -135,7 +141,7 @@ export default class Sim800L {
           const unlocked = (await this.unlockSim(null, this.simConfig.pin)) as ModemResponse;
           if (!(unlocked.result === 'success')) {
             this.logger.error(`initialize - unable to unlock SIM, ${unlocked.error?.content.message}`);
-            this.events.emit('error', unlocked);
+            this.emit('error', unlocked);
             callback(unlocked);
           }
         }
@@ -143,7 +149,7 @@ export default class Sim800L {
         const updatedConfig = await this.updateCnmiConfig(null, this.simConfig.customCnmi!);
         if (!(updatedConfig.result === 'success')) {
           this.logger.error('initialize - unable to upload CNMI config');
-          this.events.emit('error', updatedConfig);
+          this.emit('error', updatedConfig);
           callback(updatedConfig);
         }
         // And we set the SMS mode to PDU
@@ -152,7 +158,7 @@ export default class Sim800L {
         // Holy cow
         this.initialized = true;
         this.logger.info(`modem is initialized and ready! 👌`);
-        this.events.emit('initialized');
+        this.emit('initialized');
         this.retryNumber = 0;
         this.resetNumber = 0;
         this.checkNetwork(null);
@@ -409,9 +415,12 @@ export default class Sim800L {
           });
         }, 6000);
       };
-
+      // in case we're hanging on a sms query, sending the escape key
+      await this.execCommand(undefined, '\r' + String.fromCharCode(27), 'reset-sms', undefined, true);
       // calling the reset vector
       await this.execCommand(callback, `AT+CFUN=${mode}`, 'reset', handler);
+      this.logger.warn(`resetmodem - modem is resetting...`);
+
       this.resetNumber += 1;
       this.initialized = false;
       this.retryNumber = 0;
@@ -419,7 +428,6 @@ export default class Sim800L {
       this.brownoutNumber = 0;
       this.networkReady = false;
       this.dataBuffer = '';
-      this.logger.warn(`resetmodem - modem is resetting...`);
     }
   };
 
@@ -476,7 +484,7 @@ export default class Sim800L {
               },
             },
           });
-          this.events.emit('network', {
+          this.emit('network', {
             networkAction: parseInt(networkAction, 10),
             networkStatus: parseInt(networkStatus, 10),
           });
@@ -513,7 +521,7 @@ export default class Sim800L {
     timeout?: number,
   ): Promise<ModemResponse> | void => {
     if (typeof callback !== 'function') {
-      return promisify(this.execCommand, command, type, handler);
+      return promisify(this.execCommand, command, type, handler, immediate);
     }
     const uuid = v4();
     this.logger.debug(
@@ -537,15 +545,10 @@ export default class Sim800L {
       this.nextEvent();
     } else {
       // current queue item must have ended or not started yet
-      this.logger.debug(`execcommand - trying to execute command now`);
-      const canUnshift = !this.queue.length || this.queue[0].ended || !this.queue[0].timeoutIdentifier;
-      if (canUnshift) {
-        this.queue.unshift(item);
-        nextTick(() => {
-          this.logger.debug(`execcommand - executing command instantly`);
-          this.nextEvent()
-        });
-      }
+      this.logger.debug(`execcommand - trying to execute command ${uuid.split('-')[0]} now`);
+      this.queue.unshift(item);
+      this.nextEvent();
+      this.logger.debug(`execcommand - executing command ${uuid.split('-')[0]} instantly`);
     }
     // We cycle nextEvent()
   };
@@ -574,7 +577,7 @@ export default class Sim800L {
       }
       const job = this.queue[0];
       this.logger.debug(`handleincoming - calling ${this.queue[0].uuid.split('-')[0]} handler`);
-      job.handler(this.dataBuffer, job, this.events, this.logger);
+      job.handler(this.dataBuffer, job, this, this.logger);
     } else {
       // This is incoming data, we need to create a job, unshift it and handle the data
       const uuid = v4();
@@ -588,7 +591,7 @@ export default class Sim800L {
         ended: false,
       };
       this.queue.unshift(job);
-      this.incomingHandler(this.dataBuffer, job, this.events, this.logger);
+      this.incomingHandler(this.dataBuffer, job, this, this.logger);
     }
     this.busy = false;
     this.nextEvent();
@@ -620,12 +623,16 @@ export default class Sim800L {
       job.timeoutIdentifier = setTimeout(() => {
         this.cancelEvent(job.uuid);
       }, job.overrideTimeout || 15000);
-      if (job.command) {
+      if (job.command || job.command.length) {
         this.logger.debug(
-          `write - sending command ${job.command.length > 15 ? `${job.command.substring(0, 15)}...` : job.command}`,
+          `write - sending command ${job.uuid.split('-')[0]} : ${
+            job.command.length > 15 ? `${job.command.substring(0, 15)}...` : job.command
+          }`,
         );
         this.port.write(
-          `${job.command}${job.command.endsWith(String.fromCharCode(26)) ? '' : '\r'}`,
+          `${job.command}${
+            job.command.endsWith(String.fromCharCode(26)) || job.command.endsWith(String.fromCharCode(27)) ? '' : '\r'
+          }`,
           undefined,
           (err: any) => {
             if (err) {
@@ -634,7 +641,7 @@ export default class Sim800L {
                 job.callback(null, err);
               } else {
                 // event error
-                this.events.emit('error', err);
+                this.emit('error', err);
               }
             }
           },
@@ -646,12 +653,12 @@ export default class Sim800L {
   private attachingEvents() {
     this.logger.verbose(`events - attaching serialport events`);
     this.port.on('open', () => {
-      this.events.emit('open');
+      this.emit('open');
     });
     this.port.on('data', this.handleIncomingData);
-    // this.events.on('initialized', () => {});
-    this.events.on('network', this.networkInternalHandler);
-    this.events.on('brownout', this.brownoutHandler);
+    // this.on('initialized', () => {});
+    this.on('network', this.networkInternalHandler);
+    this.on('brownout', this.brownoutHandler);
     this.logger.verbose(`events - serialport events attached`);
   }
   private cancelEvent(uuid: string) {
@@ -671,7 +678,7 @@ export default class Sim800L {
           content: parseBuffer(this.dataBuffer),
         },
       });
-      this.events.emit('error', {
+      this.emit('error', {
         uuid: job.uuid,
         type: job.type,
         result: 'failure',
@@ -683,7 +690,7 @@ export default class Sim800L {
     }
     if (job && job.type === 'incoming') {
       // this was an unhandled event, emitting the event
-      this.events.emit('incoming', {
+      this.emit('incoming', {
         uuid: job.uuid,
         type: job.type,
         result: 'failure',
@@ -694,7 +701,7 @@ export default class Sim800L {
       } as ModemResponse<ParsedData>);
     }
     if (job) {
-      this.events.emit('timeout', job);
+      this.emit('timeout', job);
     }
     this.queue = this.queue.filter((item) => {
       return !(item.uuid === uuid);
@@ -731,7 +738,7 @@ export default class Sim800L {
       this.networkReady
     ) {
       this.logger.warn(`networkhandler - network lost, status: ${network.networkStatus}`);
-      this.logger.verbose(`networkhandler - ${3 - this.networkRetry} checks remaining before modem reset`);
+      this.logger.verbose(`networkhandler - ${4 - this.networkRetry} checks remaining before modem reset`);
       this.networkReady = false;
       this.networkRetry += 1;
     } else {
@@ -740,7 +747,7 @@ export default class Sim800L {
         this.networkRetry = 0;
       } else {
         this.logger.warn(`networkhandler - waiting for network, status: ${network.networkStatus}`);
-        this.logger.verbose(`networkhandler - ${3 - this.networkRetry} checks remaining before modem reset`);
+        this.logger.verbose(`networkhandler - ${4 - this.networkRetry} checks remaining before modem reset`);
         this.networkRetry += 1;
       }
     }
@@ -749,14 +756,19 @@ export default class Sim800L {
       this.resetModem(undefined, undefined, true);
     }
   };
+
   private brownoutHandler = () => {
     if (this.brownoutNumber > 3) {
       this.resetModem(undefined, undefined, true);
     }
     this.logger.warn('brownout - modem is unreachable, retrying');
-    this.logger.verbose(`brownout - ${3 - this.brownoutNumber} checks remaining before modem reset`);
+    this.logger.verbose(`brownout - ${4 - this.brownoutNumber} checks remaining before modem reset`);
     this.brownoutNumber += 1;
   };
+
+  // private brownoutHandler = () => {
+  //   this.resetModem(undefined, undefined, true);
+  // };
 
   private setupNetworkMonitor() {
     return setInterval(async () => {
@@ -770,7 +782,7 @@ export default class Sim800L {
     return setInterval(async () => {
       const result = await this.checkModem(undefined);
       if ((result as ModemResponse).result === 'failure' || !this.initialized) {
-        this.events.emit('brownout');
+        this.emit('brownout');
       } else {
         this.brownoutNumber = 0;
       }

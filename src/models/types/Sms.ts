@@ -23,5 +23,6 @@ export interface SmsCreationOptions {
   numberFormat?: NumberType;
   smsc?: string;
   encoding?: SmsEncoding;
-  deliveryReport: boolean;
+  deliveryReport?: boolean;
+  autoSend?: boolean
 }

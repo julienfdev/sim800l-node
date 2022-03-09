@@ -1,7 +1,7 @@
 export default interface Logger {
-  error: (...any: any) => any;
-  warn: (...any: any) => any;
-  info: (...any: any) => any;
-  verbose: (...any: any) => any;
-  debug: (...any: any) => any;
+  error: (...args: any) => any;
+  warn: (...args: any) => any;
+  info: (...args: any) => any;
+  verbose: (...args: any) => any;
+  debug: (...args: any) => any;
 }

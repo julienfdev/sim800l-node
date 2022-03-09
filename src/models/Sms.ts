@@ -38,9 +38,9 @@ export class Sms extends EventEmitter {
 
   // Get Events
 
-  constructor(number: string, text: string, options = {} as SmsCreationOptions, modem: Sim800L) {
+  constructor(receipient: string, text: string, options = {} as SmsCreationOptions, modem: Sim800L) {
     super();
-    this._receiver = number;
+    this._receiver = receipient;
     this._text = text;
     if (options) {
       this._smscType = options.numberFormat || this._smscType;
@@ -101,7 +101,9 @@ export class Sms extends EventEmitter {
       for (const part of this._data) {
         this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
         part.status = SmsStatus.SENDING;
-        this.sendPart(null, part).then((data: ModemResponse | void) => {});
+        this.sendPart(null, part).then((data: ModemResponse | void) => {
+          // TBD if needed
+        });
       }
     } catch (error: any) {
       throw error instanceof Error ? error : new Error(error);
@@ -159,11 +161,11 @@ export class Sms extends EventEmitter {
       });
       if (job.reference) {
         const part = this._data.find((chunk) => {
-          return job.reference == chunk.id;
+          return job.reference === chunk.id;
         });
         if (part) {
           part.status = SmsStatus.SENT;
-          part.shortId = referenceChunk ? parseInt(referenceChunk?.replace('+CMGS: ', '')) : 0;
+          part.shortId = referenceChunk ? parseInt(referenceChunk?.replace('+CMGS: ', ''), 10) : 0;
         }
       }
     }
@@ -184,7 +186,7 @@ export class Sms extends EventEmitter {
       // if we've got a reference, we can find and update the status of the part
       if (job.reference) {
         const part = this._data.find((chunk) => {
-          return job.reference == chunk.id;
+          return job.reference === chunk.id;
         });
         if (part) part.status = SmsStatus.ERROR;
       }
@@ -194,7 +196,7 @@ export class Sms extends EventEmitter {
     // parsing the data
     try {
       const parser = PDUParser.Parse(delivery.data);
-      if (parser && parser.reference && !isNaN(parser.reference) && parser.tpdu_type == 'SMS-STATUS-REPORT') {
+      if (parser && parser.reference && !isNaN(parser.reference) && parser.tpdu_type === 'SMS-STATUS-REPORT') {
         // let's see if we've got a part with this shortId
         const part = this._data.find((chunk) => {
           return chunk.shortId === parser.reference;

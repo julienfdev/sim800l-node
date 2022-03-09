@@ -40,7 +40,7 @@ export default class Sim800L extends EventEmitter {
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
   private inbox: InboundSms[] = [];
-  public logger: Logger = { error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {} };
+  public logger: Logger = { error: () => {/**/}, warn: () => {/**/}, info: () => {/**/}, verbose: () => {/**/}, debug: () => {/**/} };
 
   // GETTERS
   get isInitialized() {
@@ -105,8 +105,8 @@ export default class Sim800L extends EventEmitter {
     }
   }
 
-  public createSms = (number: string, text: string, options = {} as SmsCreationOptions) => {
-    return new Sms(number, text, options, this); // neat
+  public createSms = (receipient: string, text: string, options = {} as SmsCreationOptions) => {
+    return new Sms(receipient, text, options, this); // neat
   };
 
   public initialize = async (
@@ -257,7 +257,7 @@ export default class Sim800L extends EventEmitter {
             keyFields.splice(0, 1);
             const key = keyFields.join(' ');
             const status = getInitializationStatus(key);
-            this.simUnlocked = status == InitializeStatus.READY;
+            this.simUnlocked = status === InitializeStatus.READY;
             this.logger.verbose(`checkpinrequired - result : ${getStatusMessage(status)} `);
             job.callback!({
               uuid: job.uuid,
@@ -562,7 +562,7 @@ export default class Sim800L extends EventEmitter {
     if (typeof callback !== 'function') {
       return promisify(this.setSmsMode, mode);
     } else {
-      this.logger.verbose(`setsmsmode - setting ${mode == 0 ? 'PDU' : 'TEXT'} mode`);
+      this.logger.verbose(`setsmsmode - setting ${mode === 0 ? 'PDU' : 'TEXT'} mode`);
       return await this.execCommand(callback, 'AT+CMGF=0', 'set-sms-mode');
     }
   };
@@ -823,7 +823,7 @@ export default class Sim800L extends EventEmitter {
         });
         if (parsedData.length > cdsIndex + 1 && buffer.endsWith('\r\n')) {
           this.emit('deliveryreport', {
-            shortId: parseInt(parsedData[cdsIndex].replace('+CDS: ', '')),
+            shortId: parseInt(parsedData[cdsIndex].replace('+CDS: ', ''), 10),
             data: parsedData[cdsIndex + 1],
           } as DeliveryReportRawObject);
           job.ended = true;

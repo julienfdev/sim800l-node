@@ -17,26 +17,23 @@ import { ModemCallback } from './types/ModemCallback';
 import ModemResponse from './types/ModemResponse';
 
 export class Sms extends EventEmitter {
-  //
-  // MAKE PRIVATE AND WRITE GETTERS AFTER DEBUG
-  _id = v4();
-  _smsc?;
-  _smscType: NumberType = NumberType.INTERNATIONAL;
-  _receiver: string;
-  _receiverType: NumberType = NumberType.INTERNATIONAL;
-  _encoding: SmsEncoding = '16bit';
-  _text: string;
-  _requestDeliveryReport: boolean = true;
-  _autoSend = false;
-  _data: SmsPduChunk[] = [];
-  _modem: Sim800L;
-  _shortRef = '';
-
+  private _id = v4();
+  private _smsc?;
+  private _smscType: NumberType = NumberType.INTERNATIONAL;
+  private _receiver: string;
+  private _receiverType: NumberType = NumberType.INTERNATIONAL;
+  private _encoding: SmsEncoding = '16bit';
+  private _text: string;
+  private _requestDeliveryReport: boolean = true;
+  private _autoSend = false;
+  private _data: SmsPduChunk[] = [];
+  private _modem: Sim800L;
+  private _shortRef = '';
   private logger: Logger;
-  // MAKE PRIVATE AFTER DEBUG
-  // Get events
 
-  // Get Events
+  // Getters TBD
+
+  // Getters TBD
 
   constructor(receipient: string, text: string, options = {} as SmsCreationOptions, modem: Sim800L) {
     super();
@@ -49,6 +46,7 @@ export class Sms extends EventEmitter {
       this._requestDeliveryReport = options.deliveryReport || this._requestDeliveryReport;
       this._smsc = options.smsc;
       this._autoSend = options.autoSend || this._autoSend;
+      this._id
     }
     this._modem = modem;
     this.logger = this._modem.logger;

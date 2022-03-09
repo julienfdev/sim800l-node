@@ -40,7 +40,23 @@ export default class Sim800L extends EventEmitter {
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
   private inbox: InboundSms[] = [];
-  public logger: Logger = { error: () => {/**/}, warn: () => {/**/}, info: () => {/**/}, verbose: () => {/**/}, debug: () => {/**/} };
+  public logger: Logger = {
+    error: () => {
+      /**/
+    },
+    warn: () => {
+      /**/
+    },
+    info: () => {
+      /**/
+    },
+    verbose: () => {
+      /**/
+    },
+    debug: () => {
+      /**/
+    },
+  };
 
   // GETTERS
   get isInitialized() {

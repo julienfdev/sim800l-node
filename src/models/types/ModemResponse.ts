@@ -1,14 +1,14 @@
-export default interface ModemResponse<T = any, R = any> {
+export default interface ModemResponse<SuccessType = any, ErrorType = any> {
   uuid: string;
   type: string;
   result: 'success' | 'failure';
   data?: {
     raw: string | string[];
-    processed: T;
+    processed: SuccessType;
   };
   error?: {
     type: string;
-    content: T;
+    content: ErrorType;
   };
 }
 

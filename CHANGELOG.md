@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 ### Removed
 ### Changed
+- Complete overhaul of typings and type annotations
+- - Better code readability
+- - Type hinting for function now offers accurate overloads
+- - Modem functions now shares the same generic signature
 ### Fixed
 
 ## [0.2.1] - 2022-03-09

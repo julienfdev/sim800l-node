@@ -12,6 +12,7 @@ export default interface JobItem {
   timeoutIdentifier: any;
   ended: boolean;
   overrideTimeout?: number;
-  inbox?: Record<string, any>[];
-  outbox?: Record<string, any>[]; // Message interface TBD
+  subcommands?: string[];
+  subcommandIndex: number;
+  reference?: string;
 }

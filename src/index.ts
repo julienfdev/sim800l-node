@@ -1,6 +1,6 @@
 export { Sms } from '@/models/Sms';
 import { Sms } from '@/models/Sms';
-import { SmsCreationOptions } from './models/types/Sms';
+import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
@@ -27,6 +27,7 @@ export default class Sim800L extends EventEmitter {
     deliveryReport: true,
     autoDeleteFromSim: true,
   };
+  public port: SerialPort;
   private initialized = false;
   private networkReady = false;
   private simUnlocked = false;
@@ -34,13 +35,12 @@ export default class Sim800L extends EventEmitter {
   private retryNumber = 0;
   private resetNumber = 0;
   private brownoutNumber = 0;
-  private port: SerialPort;
   private queue: JobItem[] = [];
   private busy = false;
-  private logger: Logger = { error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {} };
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
   private inbox: InboundSms[] = [];
+  public logger: Logger = { error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {} };
 
   // GETTERS
   get isInitialized() {
@@ -519,6 +519,8 @@ export default class Sim800L extends EventEmitter {
     handler = defaultHandler,
     immediate = false,
     timeout?: number,
+    subcommands = [] as string[],
+    reference?: string,
   ): Promise<ModemResponse> | void => {
     if (typeof callback !== 'function') {
       return promisify(this.execCommand, command, type, handler, immediate);
@@ -530,7 +532,7 @@ export default class Sim800L extends EventEmitter {
       }`,
     );
     // We create a queue item
-    const item = {
+    const item: JobItem = {
       uuid,
       callback,
       handler,
@@ -539,6 +541,9 @@ export default class Sim800L extends EventEmitter {
       timeoutIdentifier: null,
       overrideTimeout: timeout,
       ended: false,
+      subcommandIndex: 0,
+      subcommands,
+      reference,
     };
     if (!immediate) {
       this.queue.push(item);
@@ -589,6 +594,7 @@ export default class Sim800L extends EventEmitter {
         type: 'incoming',
         timeoutIdentifier: null,
         ended: false,
+        subcommandIndex: 0,
       };
       this.queue.unshift(job);
       this.incomingHandler(this.dataBuffer, job, this, this.logger);
@@ -810,9 +816,20 @@ export default class Sim800L extends EventEmitter {
         // console.log(parsedData);
         job.ended = true;
       }
-      //
-      // IF DELIVERY REPORT - BROADCAST RAW DATA
-      //
+      if (isDeliveryReport(parsedData)) {
+        console.log(buffer);
+        // If CDS key is not the last key of the buffer, we can emit a DeliveryReportRawObject and end the job
+        const cdsIndex = parsedData.findIndex((key) => {
+          return key.startsWith('+CDS: ');
+        });
+        if (parsedData.length > cdsIndex + 1 && buffer.endsWith('\r\n')) {
+          this.emit('deliveryreport', {
+            shortId: parseInt(parsedData[cdsIndex].replace('+CDS: ', '')),
+            data: parsedData[cdsIndex + 1],
+          } as DeliveryReportRawObject);
+          job.ended = true;
+        }
+      }
       if (isNetworkInfo(parsedData)) {
         logger?.debug('incominghandler - +CREG information, checking status');
         this.checkNetwork(undefined);
@@ -834,7 +851,7 @@ export default class Sim800L extends EventEmitter {
 //    |\_________\|_______|\|__|     \|__|     \|_______|\|__|\|__|    \|__|
 //    \|_________|
 
-function promisify(functionSignature: DefaultFunctionSignature, ...args: any[]): Promise<ModemResponse> {
+export function promisify(functionSignature: DefaultFunctionSignature, ...args: any[]): Promise<ModemResponse> {
   return new Promise((resolve, reject) => {
     functionSignature((result, err) => {
       if (err) {
@@ -872,18 +889,18 @@ function getInitializationStatus(key: string): InitializeStatus {
       return InitializeStatus.ERROR;
   }
 }
-function parseBuffer(buffer: string): string[] {
+export function parseBuffer(buffer: string): string[] {
   return buffer.split(/[\r\n]{1,2}/).filter((value) => {
     return !/^[\r\n]{1,2}$/.test(value) && value.length;
   });
 }
-function isOk(parsedData: ParsedData) {
+export function isOk(parsedData: ParsedData) {
   return parsedData.length ? parsedData[parsedData.length - 1] === 'OK' : false;
 }
-function isWaitingForInput(parsedData: ParsedData) {
+export function isWaitingForInput(parsedData: ParsedData) {
   return parsedData.length ? parsedData[parsedData.length - 1].startsWith('>') : false;
 }
-function isError(parsedData: ParsedData): ModemErrorRaw {
+export function isError(parsedData: ParsedData): ModemErrorRaw {
   const field =
     parsedData.length && parsedData[parsedData.length - 1] ? parsedData[parsedData.length - 1].split(' ERROR: ') : null;
   if (field && field.length && field[0] === '+CME') {
@@ -913,6 +930,9 @@ function findKey(parsedData: ParsedData, key: string) {
   return !!parsedData.find((value) => value.startsWith(key));
 }
 
+function isDeliveryReport(parsedData: ParsedData) {
+  return findKey(parsedData, '+CDS: ');
+}
 //  ___  ___  ________  ________   ________  ___       _______   ________  ________
 // |\  \|\  \|\   __  \|\   ___  \|\   ___ \|\  \     |\  ___ \ |\   __  \|\   ____\
 // \ \  \\\  \ \  \|\  \ \  \\ \  \ \  \_|\ \ \  \    \ \   __/|\ \  \|\  \ \  \___|_

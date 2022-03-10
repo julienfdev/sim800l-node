@@ -7,6 +7,10 @@
   "files": [
     "lib/**/*"
   ],
+  "repository": "https://github.com/julienfdev/sim800l-node",
+  "bugs": {
+    "url": "https://github.com/julienfdev/sim800l-node/issues"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon",

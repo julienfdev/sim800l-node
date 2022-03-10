@@ -3,7 +3,7 @@
  * @author Julien Ferand <hello@julienferand.dev>
  */
 
-export { Sms } from '@/models/Sms';
+export { Sms } from './models/Sms';
 import { Sms } from '@/models/Sms';
 import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';

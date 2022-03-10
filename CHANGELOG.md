@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- JSDoc type hinting
+- Documentation in README.md
 ### Removed
 ### Changed
-- Complete overhaul of typings and type annotations
-- - Better code readability
-- - Type hinting for function now offers accurate overloads
-- - Modem functions now shares the same generic signature
+-  Complete overhaul of typings and type annotations
+    - Better code readability
+    - Type hinting for function now offers accurate overloads
+    - Modem functions now shares the same generic signature
+- Improved error detection and handling
 ### Fixed
 
 ## [0.2.1] - 2022-03-09

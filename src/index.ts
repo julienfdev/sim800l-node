@@ -1,9 +1,15 @@
+/**
+ * SIM800L-Node, a modern TypeScript package for SIM800L family modems
+ * @author Julien Ferand <hello@julienferand.dev>
+ */
+
 export { Sms } from '@/models/Sms';
 import { Sms } from '@/models/Sms';
 import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
+import { PortInfo } from '@/models/types/SimConfig';
 import { JobHandler, ParsedData } from '@/models/types/JobHandler';
 import JobItem from '@/models/types/JobItem';
 import { CommandParams, ModemCallback, ModemFunction, PromisifyFunctionSignature } from '@/models/types/ModemCallback';
@@ -21,7 +27,7 @@ import SimConfig from '@/models/types/SimConfig';
 import Logger from './models/types/Logger';
 import InboundSms from './models/InboundSms';
 
-export default class Sim800L extends EventEmitter {
+class Sim800L extends EventEmitter {
   public simConfig: SimConfig = {
     customCnmi: '2,1,2,1,0',
     deliveryReport: true,
@@ -70,9 +76,10 @@ export default class Sim800L extends EventEmitter {
   }
 
   /**
-   * Creates an instance of Sim800L.
-   * @param {OpenOptions} options
-   * @memberof Sim800L
+   * Returns an object abstracting a SIM800L family serial modem.
+   *
+   * @param {SerialPortOpenOptions} options - The options you provide to the "serialport" dependency
+   * @param {SimConfig} simConfig - The additional
    */
   constructor(options: SerialPortOpenOptions<any>, simConfig: SimConfig) {
     super();
@@ -93,20 +100,18 @@ export default class Sim800L extends EventEmitter {
   }
 
   /**
-   *Returns a list of available serial ports, is available statically for config purposes
+   * Returns a list of available serial ports, is available statically for config purposes
    *
-   * @static
-   * @return {*}  {Promise<SerialPortInfo[]>}
-   * @memberof Sim800L
+   * @returns {PromisePortInfo[]} An array of serial ports available
    */
-  static async list(): Promise<Record<string, any>[]> {
+  static async list(): Promise<PortInfo[]> {
     return await SerialPort.list();
   }
 
   /**
-   *Opens the port communication (emits a "open" event you can listen on the @events property)
+   * Closes the current serialport communication tunnel
    *
-   * @memberof Sim800L
+   * @returns void
    */
   public close(): void {
     try {
@@ -121,13 +126,29 @@ export default class Sim800L extends EventEmitter {
     }
   }
 
+  /**
+   * A function creating an Sms attached to this particular Sim800L instance
+   *
+   * @param {string} receipient - The number you want to send your sms to (international format by default)
+   * @param {string} text - The content of your SMS (UTF-8 recommended)
+   * @param {SmsCreationOptions} [options = {}] - You can specify various parameters like a special smsc or delivery reports activation.
+   * @returns {Sms} An instance of the Sms class
+   */
   public createSms = (receipient: string, text: string, options = {} as SmsCreationOptions) => {
     return new Sms(receipient, text, options, this); // neat
   };
 
-  public initialize: ModemFunction<{}> = async (callback): Promise<any> => {
+  /**
+   * Initialization routine for the modem. Can be called after cold-boot.
+   * The function checks if the modem is online, enables verbose mode, checks if pin is required, unlock the sim and updates the config of the modem
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{}} params - empty object provided for type consistency
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse. If a callback is provided, the function will use the callback instead and return void
+   */
+  public initialize: ModemFunction<{}> = async (callback: ModemCallback | null, params = {}): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.initialize, {});
+      return promisify(this.initialize, params);
     } else {
       this.logger.info('Initializing modem');
       try {
@@ -189,15 +210,25 @@ export default class Sim800L extends EventEmitter {
     return;
   };
 
-  public checkModem: ModemFunction<{}, CheckModemResponse> = async (callback): Promise<any> => {
+  /**
+   * checkModem can be used to make sure the modem is in a ready state to accept AT commands
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{}} params - empty object provided for type consistency
+   * @returns {Promise<ModemResponse<CheckModemResponse>> | void} A Promise resolving the ModemResponse. If a callback is provided, the function will use the callback instead and return void
+   */
+  public checkModem: ModemFunction<{}, CheckModemResponse> = async (
+    callback: ModemCallback | null,
+    params = {},
+  ): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.checkModem, {});
+      return promisify(this.checkModem, params);
     } else {
       this.logger.verbose(`checkmodem - checking modem connection`);
       try {
         // We define the handler, which will search of an OK end of query
         const handler: JobHandler = (buffer, job) => {
-          if (isOk(parseBuffer(buffer))) {
+          if (isOk(buffer)) {
             this.logger.debug(`checkmodem - modem online`);
             job.callback!({
               uuid: job.uuid,
@@ -212,7 +243,7 @@ export default class Sim800L extends EventEmitter {
               },
             });
             job.ended = true;
-          } else if (isError(parseBuffer(buffer)).error) {
+          } else if (getError(parseBuffer(buffer)).isError) {
             this.logger.error(`checkmodem - modem error`);
             job.callback!({
               uuid: job.uuid,
@@ -235,16 +266,26 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
-  public checkPinRequired: ModemFunction<{}> = async (callback): Promise<any> => {
+  /**
+   * A function used to determine the SIM current state
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{}} params - empty object provided for type consistency
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the current SimStatus. If a callback is provided, the function will use the callback instead and return void
+   */
+  public checkPinRequired: ModemFunction<{}, CheckPinStatus> = async (
+    callback: ModemCallback | null,
+    params = {},
+  ): Promise<any> => {
     if (typeof callback !== 'function') {
-      return promisify(this.checkPinRequired, {});
+      return promisify(this.checkPinRequired, params);
     } else {
       try {
         this.logger.verbose(`checkpinrequired - checking pin lock status`);
         const handler: JobHandler = (buffer, job) => {
           const parsedBuffer = parseBuffer(buffer);
           this.logger.debug(`checkpinrequired - buffer : ${parsedBuffer}`);
-          if (isOk(parsedBuffer)) {
+          if (isOk(buffer)) {
             // command has been received, we can intercept the field that starts with +CPIN and extract the
             // status
             const field = parsedBuffer.find((part) => {
@@ -299,7 +340,7 @@ export default class Sim800L extends EventEmitter {
             });
             job.ended = true;
           }
-          if (isError(parsedBuffer).error) {
+          if (getError(parsedBuffer).isError) {
             this.logger.error(`checkpinrequired - parse error`);
             job.callback!({
               uuid: job.uuid,
@@ -309,7 +350,7 @@ export default class Sim800L extends EventEmitter {
                 type: 'checkPinError',
                 content: {
                   status: InitializeStatus.ERROR,
-                  message: isError(parsedBuffer).message,
+                  message: getError(parsedBuffer).message,
                 },
               },
             });
@@ -324,7 +365,14 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
-  public unlockSim: ModemFunction<{ pin: string }> = async (callback, { pin }): Promise<any> => {
+  /**
+   * unlockSim does exactly what you think it does
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{pin: string}} params - an object containing a pin property used to unlock the sim. the pin must be passed as a string
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the result. If a callback is provided, the function will use the callback instead and return void
+   */
+  public unlockSim: ModemFunction<{ pin: string }> = async (callback: ModemCallback | null, { pin }): Promise<any> => {
     if (typeof callback !== 'function') {
       return promisify(this.unlockSim, { pin });
     } else {
@@ -332,7 +380,7 @@ export default class Sim800L extends EventEmitter {
       const handler: JobHandler = (buffer, job) => {
         const parsedBuffer = parseBuffer(buffer);
         this.logger.debug(`unlocksim - ${parsedBuffer}`);
-        if (isError(parsedBuffer).error) {
+        if (getError(parsedBuffer).isError) {
           // pin is probably wrong, we need to callback
           this.logger.error(`unlocksim - WRONG PIN ! CHECK PIN ASAP`);
           job.callback!({
@@ -343,13 +391,13 @@ export default class Sim800L extends EventEmitter {
               type: 'sim-unlock',
               content: {
                 status: InitializeStatus.PIN_INCORRECT,
-                message: isError(parsedBuffer).message,
+                message: getError(parsedBuffer).message,
               },
             },
           });
         }
         // if not error, it can be "okay", we just log it as we're waiting for the +CPIN info
-        if (isOk(parsedBuffer)) {
+        if (isOk(buffer)) {
           this.logger.verbose(`unlocksim - PIN accepted, waiting on SIM unlock`);
         }
         // Now, we're looking into the last part of parsedData and search for "+CPIN: "
@@ -391,6 +439,14 @@ export default class Sim800L extends EventEmitter {
       this.execCommand(callback, { command: `AT+CPIN=${pin}`, type: 'pin-unlock', handler });
     }
   };
+
+  /**
+   * You can call updateCnmiConfig with a custom parameter to change the SMS message indications configuration
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{cnmi: string}} params - an object containing the cnmi string
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the result. If a callback is provided, the function will use the callback instead and return void
+   */
   public updateCnmiConfig: ModemFunction<{ cnmi: string }> = async (callback, { cnmi }): Promise<any> => {
     if (typeof callback !== 'function') {
       return promisify(this.updateCnmiConfig, { cnmi });
@@ -400,7 +456,16 @@ export default class Sim800L extends EventEmitter {
       this.execCommand(callback, { command: `AT+CNMI=${cnmi}`, type: 'cnmi-config', handler });
     }
   };
-  public resetModem: ModemFunction<{ mode?: string; reInitialize: boolean }> = async (
+
+  /**
+   * resetModem is a function that can save you from a dead-end situation, call it to soft-reset the modem, with the mode configuration you want to reset in (optional)
+   * another parameter can be pass to automatically reinitialize the modem afterwards
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{cnmi: string}} params - empty object provided for type consistency
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the current SimStatus. If a callback is provided, the function will use the callback instead and return void
+   */
+  public resetModem: ModemFunction<{ mode?: string; reInitialize?: boolean }> = async (
     callback: ModemCallback | undefined | null,
     { mode = '1,1', reInitialize = false },
   ): Promise<any> => {
@@ -444,6 +509,14 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
+  /**
+   * A function that returns the current state of network connection
+   * WIP : update to return the carrier name and force connect to it if idling
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{force: boolean}} params - an object containing the -for now- unused force parameter
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the current network status. If a callback is provided, the function will use the callback instead and return void
+   */
   public checkNetwork: ModemFunction<{ force?: boolean }> = async (
     callback: ModemCallback | undefined | null,
     { force = false },
@@ -455,7 +528,7 @@ export default class Sim800L extends EventEmitter {
       const handler: JobHandler = (buffer, job) => {
         const parsedBuffer = parseBuffer(buffer);
         // Checks if parsedBuffer bears network info
-        if (isOk(parsedBuffer)) {
+        if (isOk(buffer)) {
           this.logger.debug(`checknetwork - buffer : ${parsedBuffer}`);
           const part = parsedBuffer.find((value) => value.startsWith('+CREG: '));
           if (!part || part.split('+CREG: ').length < 2) {
@@ -506,7 +579,7 @@ export default class Sim800L extends EventEmitter {
           });
           job.ended = true;
           return;
-        } else if (isError(parsedBuffer).error) {
+        } else if (getError(parsedBuffer).isError) {
           this.logger.error('checknetwork - unhandled command error');
           callback({
             uuid: job.uuid,
@@ -514,7 +587,7 @@ export default class Sim800L extends EventEmitter {
             result: 'failure',
             error: {
               type: 'command',
-              content: isError(parsedBuffer),
+              content: getError(parsedBuffer).message,
             },
           });
           return;
@@ -524,10 +597,24 @@ export default class Sim800L extends EventEmitter {
     }
   };
 
+  /**
+   * WIP
+   * @returns {void} WIP
+   */
   public activateCReg: ModemFunction = async (callback): Promise<any> => {
     // TBD
   };
 
+  /**
+   * execCommand is the core function of the SIM800L class, it handles the AT commands, create and queue the jobs.
+   *
+   * Each job is associated with a handler that will hold the job place in the queue until the incoming data appears satisfactory, errors, or tiemout. By default, the handler will only search for OK, ERROR, or > results,
+   * you can provide a better handling of specific commands, just remember to call job.ended = true when you want to stop hanging the queue for incoming data
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {CommandParams} params - an object containing all the parameters for creating the job and handling the response, some are required (command, type).
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the Response. If a callback is provided, the function will use the callback instead and return void
+   */
   public execCommand: ModemFunction<CommandParams> = (
     callback,
     { command, type, handler = defaultHandler, immediate = false, subcommands = [], reference, timeout },
@@ -568,7 +655,14 @@ export default class Sim800L extends EventEmitter {
     // We cycle nextEvent()
   };
 
-  private setSmsMode: ModemFunction<{ mode?: number }> = async (callback, { mode = 0 }): Promise<any> => {
+  /**
+   * Sets the SMS mode (pass 0 for PDU or 1 to text mode). Please note that the Sms class currently does not support text mode, use at your own discretion
+   *
+   * @param {ModemCallback | null} callback - optional callback to handle ModemResponse the way you entend to. Must be set to null if not provided for type consistency
+   * @param {{force: boolean}} params - an object containing mode parameter
+   * @returns {Promise<ModemResponse> | void} A Promise resolving the ModemResponse, containing the result. If a callback is provided, the function will use the callback instead and return void
+   */
+  public setSmsMode: ModemFunction<{ mode?: number }> = async (callback, { mode = 0 }): Promise<any> => {
     if (typeof callback !== 'function') {
       return promisify(this.setSmsMode, { mode });
     } else {
@@ -901,31 +995,61 @@ function getInitializationStatus(key: string): InitializeStatus {
       return InitializeStatus.ERROR;
   }
 }
+
+/**
+ * Parses the raw buffer input and returns a filtered array
+ *
+ * @param {string} buffer - the raw buffer input
+ * @returns {string[]} A filtered array of strings representing the individual buffer lines
+ */
 export function parseBuffer(buffer: string): string[] {
   return buffer.split(/[\r\n]{1,2}/).filter((value) => {
     return !/^[\r\n]{1,2}$/.test(value) && value.length;
   });
 }
-export function isOk(parsedData: ParsedData) {
-  return parsedData.length ? parsedData[parsedData.length - 1] === 'OK' : false;
+/**
+ * Parsing the buffer to tell if the command has been properly executed
+ *
+ * @param {string} buffer - the raw buffer input
+ * @returns {boolean} A boolean describing if the command has been properly executed
+ */
+export function isOk(buffer: string): boolean {
+  const parsedData = parseBuffer(buffer);
+  const okField = parsedData.length ? parsedData[parsedData.length - 1] === 'OK' : false;
+  const bufferComplete = buffer.endsWith('\r\n');
+  return okField && bufferComplete;
 }
-export function isWaitingForInput(parsedData: ParsedData) {
+
+/**
+ * Catches the ">" character indicating that the modem waits for an input
+ *
+ * @param {ParsedData} parsedData - the parsed buffer input
+ * @returns {boolean} A boolean describing if the modem is waiting for an input
+ */
+export function isWaitingForInput(parsedData: ParsedData): boolean {
   return parsedData.length ? parsedData[parsedData.length - 1].startsWith('>') : false;
 }
-export function isError(parsedData: ParsedData): ModemErrorRaw {
+
+/**
+ * Intercepts the known error reporting patterns of the SIM800L, it also tries to get a formatted message describing the error
+ *
+ * @param {ParsedData} parsedData - the parsed buffer input
+ * @returns {ModemErrorRaw} The response object containing an isError boolean and the result
+ */
+export function getError(parsedData: ParsedData): ModemErrorRaw {
   const field =
     parsedData.length && parsedData[parsedData.length - 1] ? parsedData[parsedData.length - 1].split(' ERROR: ') : null;
-  if (field && field.length && field[0] === '+CME') {
+  if (field && field.length && field[0].startsWith('+C')) {
     // extracting message
     field.splice(0, 1);
     const message = field.length ? field.join(' ') : undefined;
-    return { error: true, raw: parsedData, ...{ message } };
+    return { isError: true, raw: parsedData, ...{ message } };
   } else if (parsedData && parsedData.length) {
     return parsedData[parsedData.length - 1] === 'ERROR'
-      ? { error: true, message: `${parsedData.join(' - ')}`, raw: parsedData }
-      : { error: false };
+      ? { isError: true, message: `${parsedData.join(' - ')}`, raw: parsedData }
+      : { isError: false };
   } else {
-    return { error: false };
+    return { isError: false };
   }
 }
 function isNetworkReadyIncomingBuffer(parsedData: ParsedData): boolean {
@@ -960,7 +1084,7 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
     const parsedData = parseBuffer(buffer);
     logger?.debug(`defaulthandler - buffer : ${parsedData}`);
     // If it ends with okay, resolve
-    if (isOk(parsedData)) {
+    if (isOk(buffer)) {
       logger?.debug('defaulthandler - data OK');
       if (job.callback) {
         job.callback({
@@ -975,7 +1099,7 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
       }
       job.ended = true;
     }
-    if (isError(parsedData).error) {
+    if (getError(parsedData).isError) {
       logger?.error('defaulthandler - data ERROR');
       if (job.callback) {
         job.callback({
@@ -986,7 +1110,7 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
             type: 'generic',
             content: {
               status: QueryStatus.ERROR,
-              message: isError(parsedData).message,
+              message: getError(parsedData).message,
             },
           },
         });
@@ -998,3 +1122,5 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
     job.ended = true;
   }
 };
+
+export default Sim800L;

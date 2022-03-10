@@ -530,15 +530,7 @@ export default class Sim800L extends EventEmitter {
 
   public execCommand: ModemFunction<CommandParams> = (
     callback,
-    {
-      command,
-      type,
-      handler = defaultHandler,
-      immediate = false,
-      subcommands = [],
-      reference,
-      timeout,
-    },
+    { command, type, handler = defaultHandler, immediate = false, subcommands = [], reference, timeout },
   ): any => {
     if (typeof callback !== 'function') {
       return promisify(this.execCommand, { command, type, handler, immediate });

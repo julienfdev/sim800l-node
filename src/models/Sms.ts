@@ -103,10 +103,9 @@ export class Sms extends EventEmitter {
     }
   };
 
-
   /**
    * Sending the Sms (each part if multipart). uses an handler that updates the sms status property.
-   * 
+   *
    * If using the deliveryReport property, the Sms will also listen and handle deliveryreport Events emitted by the Modem
    *
    */
@@ -117,7 +116,6 @@ export class Sms extends EventEmitter {
       this.sendPart(null, { part })
         .then((data: ModemResponse | void) => {
           // TBD if needed
-
         })
         .catch((error: any) => {
           throw error instanceof Error ? error : new Error(error);

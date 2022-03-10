@@ -27,7 +27,11 @@
     "serial",
     "node",
     "SMS",
-    "Messaging"
+    "Messaging",
+    "SIM800",
+    "modem",
+    "AT",
+    "AT Commands"
   ],
   "author": "Julien FERAND",
   "license": "MIT",

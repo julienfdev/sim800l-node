@@ -7,14 +7,32 @@ An object oriented SMS class provides an abstraction layer for the messaging rel
 
 Due to the asynchronous and unpredictable nature of UART + GSM communication, the package also make a good use of Events.
 
+## Table of contents
+* [Roadmap](#Roadmap)
+  * [What's working atm](#wwatm)
+  * [What's next](#wnext)
+* [Hardware](#Hardware) TBD
+* [Installation](#Installation) TBD
+* [Usage](#Usage) TBD
+* [API](#Api)
+  * [Summary](#Summary)
+  * [Details](#Details)
+
+<a name="Roadmap"></a>
+
 ## Roadmap
 This project is under active development, and new features will be added on the fly.
+
+<a name="wwatm"></a>
+
 ### What's working atm
 - Core initialization from cold boot to ready-state
 - AT commands queuing and execution
 - Network state monitoring and anti-brownout watchdog
 - SMS jobs creation and execution
 - Delivery reports
+  
+<a name="wnext"></a>
 
 ### What's next
 - An extensive documentation
@@ -22,16 +40,28 @@ This project is under active development, and new features will be added on the 
 - Network methods (Network selection, listing, configuration...)
 - SMS Inbox
 
+<a name="Hardware"></a>
+
 ## Hardware
 TBD
+  
+<a name="Installation"></a>
 
 ## Installation
 TBD
+  
+<a name="Usage"></a>
 
 ## Usage
 TBD
+  
+<a name="Api"></a>
 
 ## API
+
+<a name="Summary"></a>
+
+### Summary
 
 **Exported Functions**
 <dl>
@@ -71,6 +101,9 @@ TBD
 * [Sms](#Sms)
     * [new Sms(receipient, text, [options], modem)](#new_Sms_new)
     * [.send()](#Sms+send)
+
+<a name="Details"></a>
+
 ### Details
 
 <a name="Sim800L"></a>

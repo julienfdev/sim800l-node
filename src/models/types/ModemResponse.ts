@@ -57,7 +57,7 @@ export type CheckNetworkData = {
 };
 
 export type ModemErrorRaw = {
-  error: boolean;
+  isError: boolean;
   message?: string;
   raw?: string | string[];
 };

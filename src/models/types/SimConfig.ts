@@ -1,4 +1,6 @@
+import { SerialPort } from 'serialport';
 import Logger from './Logger';
+import { Flatten, GetReturnType, UnpackPromise } from './Util';
 
 export default interface SimConfig {
   customCnmi?: string;
@@ -8,3 +10,4 @@ export default interface SimConfig {
   smsc?: string;
   logger?: Logger;
 }
+export type PortInfo = Flatten<UnpackPromise<GetReturnType<typeof SerialPort.list>>>;

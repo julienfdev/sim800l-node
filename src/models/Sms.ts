@@ -1,5 +1,5 @@
 import { EventEmitter } from 'stream';
-import Sim800L, { isError, isOk, isWaitingForInput, parseBuffer, promisify } from '..';
+import Sim800L, { getError, isOk, isWaitingForInput, parseBuffer, promisify } from '..';
 import {
   DeliveryReportRawObject,
   NumberType,
@@ -35,7 +35,16 @@ export class Sms extends EventEmitter {
 
   // Getters TBD
 
-  constructor(receipient: string, text: string, options = {} as SmsCreationOptions, modem: Sim800L) {
+  /**
+   * Creates an instance of the Sms class. the Sms is an object abstracting the logic required to handle and send SMS in PDU mode
+   * As it's designed to work with a Sim800L modem, an instance of Sim800L must be provided, you can also use the createSms() method from the Sim800L instance directly
+   *
+   * @param {string} receipient - The receipient number (international format preffered)
+   * @param {string} text - The content of the message
+   * @param {SmsCreationOptions} [options={}] - an object containing various options like delivery report activation, custom smsc, number format...
+   * @param {Sim800L} modem - an instance of Sim800L which will send the Sms
+   */
+  constructor(receipient: string, text: string, options: SmsCreationOptions = {}, modem: Sim800L) {
     super();
     this._receiver = receipient;
     this._text = text;
@@ -94,17 +103,25 @@ export class Sms extends EventEmitter {
     }
   };
 
-  public send = async () => {
-    try {
-      for (const part of this._data) {
-        this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
-        part.status = SmsStatus.SENDING;
-        this.sendPart(null, { part }).then((data: ModemResponse | void) => {
+
+  /**
+   * Sending the Sms (each part if multipart). uses an handler that updates the sms status property.
+   * 
+   * If using the deliveryReport property, the Sms will also listen and handle deliveryreport Events emitted by the Modem
+   *
+   */
+  public send = async (): Promise<void> => {
+    for (const part of this._data) {
+      this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
+      part.status = SmsStatus.SENDING;
+      this.sendPart(null, { part })
+        .then((data: ModemResponse | void) => {
           // TBD if needed
+
+        })
+        .catch((error: any) => {
+          throw error instanceof Error ? error : new Error(error);
         });
-      }
-    } catch (error: any) {
-      throw error instanceof Error ? error : new Error(error);
     }
   };
 
@@ -138,7 +155,7 @@ export class Sms extends EventEmitter {
       this.logger.debug(`smshandler - handler is waiting for input, sending subcommand`);
       this._modem.port.write(`${job.subcommands?.length ? job.subcommands[0] : `ERROR\r`}`);
     }
-    if (isOk(parsed)) {
+    if (isOk(buffer)) {
       this.logger.verbose(`smshandler - PDU part ${job.reference} sent`);
       // callback success
       job.callback!({
@@ -165,7 +182,7 @@ export class Sms extends EventEmitter {
         }
       }
     }
-    if (isError(parsed).error) {
+    if (getError(parsed).isError) {
       // callback failure
       // callback success
       this.logger.verbose(`smshandler - PDU part ${job.reference} couldn't be send`);
@@ -174,7 +191,7 @@ export class Sms extends EventEmitter {
         type: 'sms-sent',
         result: 'failure',
         error: {
-          content: isError(parsed).message,
+          content: getError(parsed).message,
           type: 'unknown',
         },
       });

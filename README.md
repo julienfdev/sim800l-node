@@ -67,7 +67,7 @@ TBD
         * [.setSmsMode(callback, params)](#Sim800L+setSmsMode) ⇒ <code>Promise.&lt;ModemResponse&gt;</code> \| <code>void</code>
         * [.close()](#Sim800L+close) ⇒ <code>void</code>
     * _static_
-        * [.list()](#Sim800L.list) ⇒ <code>Array.&lt;PromisePortInfo&gt;</code>
+        * [.list()](#Sim800L.list) ⇒ <code>Array.&lt;PortInfo&gt;</code>
 * [Sms](#Sms)
     * [new Sms(receipient, text, [options], modem)](#new_Sms_new)
     * [.send()](#Sms+send)
@@ -238,11 +238,11 @@ Closes the current serialport communication tunnel
 *Returns*: void  
 <a name="Sim800L.list"></a>
 
-**Sim800L.list() ⇒ <code>Array.&lt;PromisePortInfo&gt;</code>**
+**Sim800L.list() ⇒ <code>Array.&lt;PortInfo&gt;</code>**
 Returns a list of available serial ports, is available statically for config purposes
 
 *Kind*: static method of [<code>Sim800L</code>](#Sim800L)  
-*Returns*: <code>Array.&lt;PromisePortInfo&gt;</code> - An array of serial ports available  
+*Returns*: <code>Array.&lt;PortInfo&gt;</code> - An array of serial ports available  
 
 <a name="parseBuffer"></a>
 

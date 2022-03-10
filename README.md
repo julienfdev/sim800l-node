@@ -1,4 +1,4 @@
-# Sim800l-node
+# Sim800L-node
 SIM800L-node is a modern TypeScript package providing an asynchronous serial interface for SIM800L type GSM modems.
 
 It features a SIM800L Class shielding the user from tedious AT commands configuration and management and implementing a basic FI/FO job queue; it also exposes an interface to plug your own logger in.
@@ -324,9 +324,11 @@ TBD
 TBD
 
 ### Contribution
+
 Feel free to contribute to the project by suggesting or developing new features.
 Please observe these very few rules : 
 - Fork the project
 - Create and publish a branch named `wip/yourfeature`
 - Create a pull request on `master`
 - Enjoy !
+

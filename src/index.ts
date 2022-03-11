@@ -1044,7 +1044,7 @@ export function getError(buffer: string): ModemErrorRaw {
     parsedData.length && parsedData[parsedData.length - 1] ? parsedData[parsedData.length - 1].split(' ERROR: ') : null;
   // If buffer is complete, in case we haven't received all the line after a +Cxx error (this happens, thanks UART)
   if (bufferComplete) {
-    if (field && field.length && field[0].startsWith('+C')) {
+    if (field && field.length > 1 && field[0].startsWith('+C')) {
       // extracting message
       field.splice(0, 1);
       const message = field.length ? field.join(' ') : undefined;

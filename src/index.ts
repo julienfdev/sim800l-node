@@ -5,15 +5,15 @@
 
 export { Sms } from './models/Sms';
 export { SmsStatusChangeEvent, SmsErrorEvent } from './models/types/Sms';
-import { Sms } from '@/models/Sms';
+import { Sms } from './models/Sms';
 import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
-import { PortInfo } from '@/models/types/SimConfig';
-import { JobHandler, ParsedData } from '@/models/types/JobHandler';
-import JobItem from '@/models/types/JobItem';
-import { CommandParams, ModemCallback, ModemFunction, PromisifyFunctionSignature } from '@/models/types/ModemCallback';
+import { PortInfo } from './models/types/SimConfig';
+import { JobHandler, ParsedData } from './models/types/JobHandler';
+import JobItem from './models/types/JobItem';
+import { CommandParams, ModemCallback, ModemFunction, PromisifyFunctionSignature } from './models/types/ModemCallback';
 import ModemResponse, {
   CheckModemResponse,
   CheckNetworkData,
@@ -23,8 +23,8 @@ import ModemResponse, {
   InitializeStatus,
   ModemErrorRaw,
   QueryStatus,
-} from '@/models/types/ModemResponse';
-import SimConfig from '@/models/types/SimConfig';
+} from './models/types/ModemResponse';
+import SimConfig from './models/types/SimConfig';
 import Logger from './models/types/Logger';
 import InboundSms from './models/InboundSms';
 

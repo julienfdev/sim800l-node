@@ -5,6 +5,8 @@
 
 export { Sms } from './models/Sms';
 export { SmsStatusChangeEvent, SmsErrorEvent } from './models/types/Sms';
+export { ModemResponse, CheckNetworkData } from './models/types/ModemResponse';
+export { JobItem } from './models/types/JobItem';
 import { Sms } from './models/Sms';
 import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
@@ -12,7 +14,7 @@ import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
 import { PortInfo } from './models/types/SimConfig';
 import { JobHandler, ParsedData } from './models/types/JobHandler';
-import JobItem from './models/types/JobItem';
+import { JobItem } from './models/types/JobItem';
 import { CommandParams, ModemCallback, ModemFunction, PromisifyFunctionSignature } from './models/types/ModemCallback';
 import ModemResponse, {
   CheckModemResponse,

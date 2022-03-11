@@ -1,4 +1,4 @@
-export default interface ModemResponse<SuccessType = any, ErrorType = any> {
+export interface ModemResponse<SuccessType = any, ErrorType = any> {
   uuid: string;
   type: string;
   result: 'success' | 'failure';
@@ -11,6 +11,7 @@ export default interface ModemResponse<SuccessType = any, ErrorType = any> {
     content: ErrorType;
   };
 }
+export default ModemResponse;
 
 export enum InitializeStatus {
   READY,

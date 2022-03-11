@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- each network check emits a networkstatus event
 ### Removed
 ### Changed
+- Sms.send() now returns a boolean to announce if network was ready when it tried to send the sms
 ### Fixed
 
 ## [0.4.0] - 2022-03-11 

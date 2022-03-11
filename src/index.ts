@@ -843,6 +843,7 @@ class Sim800L extends EventEmitter {
     if ([ConnectionStatus.REGISTERED, ConnectionStatus.ROAMING].includes(network.networkStatus) && !this.networkReady) {
       this.logger.warn(`networkhandler - network is now ready`);
       this.networkReady = true;
+      this.emit('networkstatus', network);
     }
     if (
       ![ConnectionStatus.REGISTERED, ConnectionStatus.IN_PROGRESS, ConnectionStatus.ROAMING].includes(
@@ -852,13 +853,16 @@ class Sim800L extends EventEmitter {
     ) {
       this.logger.warn(`networkhandler - network lost, status: ${network.networkStatus}`);
       this.logger.verbose(`networkhandler - ${4 - this.networkRetry} checks remaining before modem reset`);
+      this.emit('networkstatus', network);
       this.networkReady = false;
       this.networkRetry += 1;
     } else {
       if (this.networkReady) {
         this.logger.debug(`networkhandler - network online`);
+        this.emit('networkstatus', network);
         this.networkRetry = 0;
       } else {
+        this.emit('networkstatus', network);
         this.logger.warn(`networkhandler - waiting for network, status: ${network.networkStatus}`);
         this.logger.verbose(`networkhandler - ${4 - this.networkRetry} checks remaining before modem reset`);
         this.networkRetry += 1;

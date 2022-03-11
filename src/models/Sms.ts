@@ -129,23 +129,28 @@ export class Sms extends EventEmitter {
    * If using the deliveryReport property, the Sms will also listen and handle deliveryreport Events emitted by the Modem
    *
    */
-  public send = async (): Promise<void> => {
-    for (const part of this._data) {
-      this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
-      part.status = SmsStatus.SENDING;
-      this.emit('statuschange', {
-        part: part.id,
-        sms: this._id,
-        partStatus: part.status,
-        smsStatus: this.status,
-      } as SmsStatusChangeEvent);
-      this.sendPart(null, { part })
-        .then((data: ModemResponse | void) => {
-          // TBD if needed
-        })
-        .catch((error: any) => {
-          throw error instanceof Error ? error : new Error(error);
-        });
+  public send = async (): Promise<boolean> => {
+    if (this._modem.isNetworkReady && this._modem.isInitialized) {
+      for (const part of this._data) {
+        this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
+        part.status = SmsStatus.SENDING;
+        this.emit('statuschange', {
+          part: part.id,
+          sms: this._id,
+          partStatus: part.status,
+          smsStatus: this.status,
+        } as SmsStatusChangeEvent);
+        this.sendPart(null, { part })
+          .then((data: ModemResponse | void) => {
+            // TBD if needed
+          })
+          .catch((error: any) => {
+            throw error instanceof Error ? error : new Error(error);
+          });
+      }
+      return true;
+    } else {
+      return false;
     }
   };
 
@@ -305,7 +310,7 @@ export class Sms extends EventEmitter {
             message: `delivery report : ${deliveryStatusMap.get(parser.status)}`,
           } as SmsStatusChangeEvent);
         }
-        this._modem.execCommand(null, { command: `AT+CMGD=${parser.reference}`, type: 'delete-delivery' });
+        // Seems useless   this._modem.execCommand(null, { command: `AT+CMGD=${parser.reference}`, type: 'delete-delivery' });
       }
     } catch (error) {
       this.logger.error(`deliveryhandler - parse error ${error}`);

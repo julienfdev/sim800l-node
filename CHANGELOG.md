@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 ### Fixed
 
-## [0.4.0] - 2022-03-11
+## [0.4.0] - 2022-03-11 
 ### Added
 - Sms now emits a typed statuschange event
 - Added smserror event to Sms, which fetches the maximum error info possible 
@@ -46,6 +46,7 @@ Initial changelog release
 ### Fixed
 
 [unreleased]: https://github.com/julienfdev/sim800l-node/tree/develop
+[0.4.0]: https://github.com/julienfdev/sim800l-node/tree/1cf80981219132c13f09bed762315d1ba1dc5280
 [0.3.2]: https://github.com/julienfdev/sim800l-node/tree/b53ecd7ca5f6023ed0ea3c97ebb751bbc06d9a1a
 [0.2.1]: https://github.com/julienfdev/sim800l-node/tree/73e3630b4f90db55ef9a033d2e7b8bef036ce5f8
 [0.2.0]: https://github.com/julienfdev/sim800l-node/tree/f6cc0e1dfd189900dc2d206111214b04c03e8956

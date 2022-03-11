@@ -43,7 +43,7 @@ export type SmsStatusChangeEvent = {
   sms: string;
   partStatus: SmsStatus;
   smsStatus: SmsStatus;
-  message?: string
+  message?: string;
 };
 
 export type SmsErrorEvent = {

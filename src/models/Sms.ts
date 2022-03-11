@@ -5,9 +5,11 @@ import {
   NumberType,
   SmsCreationOptions,
   SmsEncoding,
+  SmsErrorEvent,
   SmsPduChunk,
   SmsPduData,
   SmsStatus,
+  SmsStatusChangeEvent,
 } from './types/Sms';
 import { pduMessage, PDUParser } from 'pdu.ts';
 import { v4 } from 'uuid';
@@ -30,10 +32,45 @@ export class Sms extends EventEmitter {
   private _modem: Sim800L;
   private _shortRef = '';
   private logger: Logger;
+  /**
+   * the UUID of the Sms
+   *
+   * @readonly
+   * @type {string}
+   */
+  get id(): string {
+    return this._id;
+  }
 
-  // Getters TBD
-
-  // Getters TBD
+  /**
+   * the raw text of the SMS, this can be changed as long as the SMS is not in an active or sent state
+   *
+   * @type {string}
+   * @memberof Sms
+   */
+  get text(): string {
+    return this._text;
+  }
+  set text(value: string) {
+    if (this.status === SmsStatus.UNKNOWN || this.status === SmsStatus.IDLE) {
+      this.generateSmsParts(value);
+      this._text = value;
+    }
+  }
+  /**
+   * An aggregated SmsStatus mimicking a single part Status even for multipart Smses
+   *
+   * @readonly
+   * @type {SmsStatus}
+   * @memberof Sms
+   */
+  get status(): SmsStatus {
+    return this._data.length
+      ? this._data[this._data.length - 1].status === SmsStatus.IDLE
+        ? this._data[0].status
+        : this._data[this._data.length - 1].status
+      : SmsStatus.UNKNOWN;
+  }
 
   /**
    * Creates an instance of the Sms class. the Sms is an object abstracting the logic required to handle and send SMS in PDU mode
@@ -75,24 +112,7 @@ export class Sms extends EventEmitter {
       // HANDLE NUMBER FORMATTING WIP (would be cool to add locales option)
       this._receiver = this._receiver.replace(/[.\s-+]/g, '');
       // HANDLE NUMBER FORMATTING
-
-      const parsed = this.gerneratePduData({
-        smsc: this._smsc!,
-        smsc_type: this._smscType,
-        encoding: this._encoding,
-        receiver: this._receiver,
-        receiver_type: this._receiverType,
-        request_status: this._requestDeliveryReport,
-        text: this._text,
-      });
-      this._data = parsed.map((data) => {
-        return {
-          id: v4(),
-          shortId: 0,
-          data,
-          status: SmsStatus.IDLE,
-        };
-      });
+      this.generateSmsParts(this._text);
       if (this._autoSend) {
         this.logger.verbose('smscreate - autosend set, queuing the SMS');
         this.send();
@@ -113,6 +133,12 @@ export class Sms extends EventEmitter {
     for (const part of this._data) {
       this.logger.debug(`smssend - queuing part ${part.id.split('-')[0]} of SMS ${this._id.split('-')[0]}`);
       part.status = SmsStatus.SENDING;
+      this.emit('statuschange', {
+        part: part.id,
+        sms: this._id,
+        partStatus: part.status,
+        smsStatus: this.status,
+      } as SmsStatusChangeEvent);
       this.sendPart(null, { part })
         .then((data: ModemResponse | void) => {
           // TBD if needed
@@ -121,6 +147,26 @@ export class Sms extends EventEmitter {
           throw error instanceof Error ? error : new Error(error);
         });
     }
+  };
+
+  private generateSmsParts = (text: string) => {
+    const pdu = this.gerneratePduData({
+      smsc: this._smsc!,
+      smsc_type: this._smscType,
+      encoding: this._encoding,
+      receiver: this._receiver,
+      receiver_type: this._receiverType,
+      request_status: this._requestDeliveryReport,
+      text,
+    });
+    this._data = pdu.map((data) => {
+      return {
+        id: v4(),
+        shortId: 0,
+        data,
+        status: SmsStatus.IDLE,
+      };
+    });
   };
 
   private gerneratePduData = (data: pduMessage) => {
@@ -176,20 +222,38 @@ export class Sms extends EventEmitter {
         });
         if (part) {
           part.status = SmsStatus.SENT;
+          this.emit('statuschange', {
+            part: part.id,
+            sms: this.id,
+            partStatus: part.status,
+            smsStatus: this.status,
+          } as SmsStatusChangeEvent);
           part.shortId = referenceChunk ? parseInt(referenceChunk?.replace('+CMGS: ', ''), 10) : 0;
         }
       }
     }
-    if (getError(parsed).isError) {
+    if (getError(buffer).isError) {
       // callback failure
       // callback success
+      if (job.reference) {
+        const part = this._data.find((chunk) => {
+          return job.reference === chunk.id;
+        });
+        if (part) {
+          this.emit('smserror', {
+            part: part.id,
+            sms: this.id,
+            error: getError(buffer).message,
+          } as SmsErrorEvent);
+        }
+      }
       this.logger.verbose(`smshandler - PDU part ${job.reference} couldn't be send`);
       job.callback!({
         uuid: job.uuid,
         type: 'sms-sent',
         result: 'failure',
         error: {
-          content: getError(parsed).message,
+          content: getError(buffer).message,
           type: 'unknown',
         },
       });
@@ -199,7 +263,10 @@ export class Sms extends EventEmitter {
         const part = this._data.find((chunk) => {
           return job.reference === chunk.id;
         });
-        if (part) part.status = SmsStatus.ERROR;
+        if (part) {
+          part.status = SmsStatus.ERROR;
+          this.emit('statuschange', { part: part.id, sms: this._id, status: part.status });
+        }
       }
     }
   };
@@ -212,13 +279,48 @@ export class Sms extends EventEmitter {
         const part = this._data.find((chunk) => {
           return chunk.shortId === parser.reference;
         });
-        if (part) {
+        if (part && parser.status === '00') {
+          // If status byte == 0, message delivered
           part.status = SmsStatus.DELIVERED;
+          this.emit('statuschange', {
+            part: part.id,
+            sms: this._id,
+            partStatus: part.status,
+            smsStatus: this.status,
+            message: `delivery report : ${deliveryStatusMap.get(parser.status)}`,
+          } as SmsStatusChangeEvent);
+        } else if (part) {
+          part.status = SmsStatus.ERROR;
+          this.emit('smserror', {
+            part: part.id,
+            sms: this.id,
+            error: `delivery error: ${deliveryStatusMap.get(parser.status)}`,
+            errorStatus: parser.status,
+          } as SmsErrorEvent);
+          this.emit('statuschange', {
+            part: part.id,
+            sms: this._id,
+            partStatus: part.status,
+            smsStatus: this.status,
+            message: `delivery report : ${deliveryStatusMap.get(parser.status)}`,
+          } as SmsStatusChangeEvent);
         }
         this._modem.execCommand(null, { command: `AT+CMGD=${parser.reference}`, type: 'delete-delivery' });
       }
     } catch (error) {
-      this.logger.error(`Ïdeliveryhandler - parse error ${error}`);
+      this.logger.error(`deliveryhandler - parse error ${error}`);
     }
   };
 }
+
+const deliveryStatusMap = new Map([
+  ['00', 'successfully transmitted'],
+  ['41', 'incompatible destination'],
+  ['43', 'not available'],
+  ['50', 'receipient not registered'],
+  ['60', 'full'],
+  ['61', 'busy'],
+  ['62', 'not answering'],
+  ['72', 'line suspended'],
+  // Statuses from an obscure document from FranceTelecom I found online, feel free to add your own
+]);

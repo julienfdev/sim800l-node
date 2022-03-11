@@ -37,3 +37,18 @@ export type DeliveryReportRawObject = {
   shortId: number;
   data: string;
 };
+
+export type SmsStatusChangeEvent = {
+  part: string;
+  sms: string;
+  partStatus: SmsStatus;
+  smsStatus: SmsStatus;
+  message?: string
+};
+
+export type SmsErrorEvent = {
+  part: string;
+  sms: string;
+  error: string;
+  errorStatus?: string | number;
+};

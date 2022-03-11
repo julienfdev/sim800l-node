@@ -4,6 +4,7 @@
  */
 
 export { Sms } from './models/Sms';
+export { SmsStatusChangeEvent, SmsErrorEvent } from './models/types/Sms';
 import { Sms } from '@/models/Sms';
 import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
@@ -243,7 +244,7 @@ class Sim800L extends EventEmitter {
               },
             });
             job.ended = true;
-          } else if (getError(parseBuffer(buffer)).isError) {
+          } else if (getError(buffer).isError) {
             this.logger.error(`checkmodem - modem error`);
             job.callback!({
               uuid: job.uuid,
@@ -340,7 +341,7 @@ class Sim800L extends EventEmitter {
             });
             job.ended = true;
           }
-          if (getError(parsedBuffer).isError) {
+          if (getError(buffer).isError) {
             this.logger.error(`checkpinrequired - parse error`);
             job.callback!({
               uuid: job.uuid,
@@ -350,7 +351,7 @@ class Sim800L extends EventEmitter {
                 type: 'checkPinError',
                 content: {
                   status: InitializeStatus.ERROR,
-                  message: getError(parsedBuffer).message,
+                  message: getError(buffer).message,
                 },
               },
             });
@@ -380,7 +381,7 @@ class Sim800L extends EventEmitter {
       const handler: JobHandler = (buffer, job) => {
         const parsedBuffer = parseBuffer(buffer);
         this.logger.debug(`unlocksim - ${parsedBuffer}`);
-        if (getError(parsedBuffer).isError) {
+        if (getError(buffer).isError) {
           // pin is probably wrong, we need to callback
           this.logger.error(`unlocksim - WRONG PIN ! CHECK PIN ASAP`);
           job.callback!({
@@ -391,7 +392,7 @@ class Sim800L extends EventEmitter {
               type: 'sim-unlock',
               content: {
                 status: InitializeStatus.PIN_INCORRECT,
-                message: getError(parsedBuffer).message,
+                message: getError(buffer).message,
               },
             },
           });
@@ -579,7 +580,7 @@ class Sim800L extends EventEmitter {
           });
           job.ended = true;
           return;
-        } else if (getError(parsedBuffer).isError) {
+        } else if (getError(buffer).isError) {
           this.logger.error('checknetwork - unhandled command error');
           callback({
             uuid: job.uuid,
@@ -587,7 +588,7 @@ class Sim800L extends EventEmitter {
             result: 'failure',
             error: {
               type: 'command',
-              content: getError(parsedBuffer).message,
+              content: getError(buffer).message,
             },
           });
           return;
@@ -1033,21 +1034,28 @@ export function isWaitingForInput(parsedData: ParsedData): boolean {
 /**
  * Intercepts the known error reporting patterns of the SIM800L, it also tries to get a formatted message describing the error
  *
- * @param {ParsedData} parsedData - the parsed buffer input
+ * @param {string} buffer - the raw buffer input
  * @returns {ModemErrorRaw} The response object containing an isError boolean and the result
  */
-export function getError(parsedData: ParsedData): ModemErrorRaw {
+export function getError(buffer: string): ModemErrorRaw {
+  const parsedData = parseBuffer(buffer);
+  const bufferComplete = buffer.endsWith('\r\n');
   const field =
     parsedData.length && parsedData[parsedData.length - 1] ? parsedData[parsedData.length - 1].split(' ERROR: ') : null;
-  if (field && field.length && field[0].startsWith('+C')) {
-    // extracting message
-    field.splice(0, 1);
-    const message = field.length ? field.join(' ') : undefined;
-    return { isError: true, raw: parsedData, ...{ message } };
-  } else if (parsedData && parsedData.length) {
-    return parsedData[parsedData.length - 1] === 'ERROR'
-      ? { isError: true, message: `${parsedData.join(' - ')}`, raw: parsedData }
-      : { isError: false };
+  // If buffer is complete, in case we haven't received all the line after a +Cxx error (this happens, thanks UART)
+  if (bufferComplete) {
+    if (field && field.length && field[0].startsWith('+C')) {
+      // extracting message
+      field.splice(0, 1);
+      const message = field.length ? field.join(' ') : undefined;
+      return { isError: true, raw: parsedData, ...{ message } };
+    } else if (parsedData && parsedData.length) {
+      return parsedData[parsedData.length - 1] === 'ERROR'
+        ? { isError: true, message: `${parsedData.join(' - ')}`, raw: parsedData }
+        : { isError: false };
+    } else {
+      return { isError: false };
+    }
   } else {
     return { isError: false };
   }
@@ -1099,7 +1107,7 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
       }
       job.ended = true;
     }
-    if (getError(parsedData).isError) {
+    if (getError(buffer).isError) {
       logger?.error('defaulthandler - data ERROR');
       if (job.callback) {
         job.callback({
@@ -1110,7 +1118,7 @@ const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
             type: 'generic',
             content: {
               status: QueryStatus.ERROR,
-              message: getError(parsedData).message,
+              message: getError(buffer).message,
             },
           },
         });

@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 ### Fixed
 
+## [0.4.0] - 2022-03-11
+### Added
+- Sms now emits a typed statuschange event
+- Added smserror event to Sms, which fetches the maximum error info possible 
+- Mapped delivery report status byte to comprehensive text
+- Sms getter and setter public properties
+### Changed
+- Better isError handling : waiting for buffer to completely end even when catching an error
+- Refactored Sms class pdu generation
 ## [0.3.2] - 2022-03-10
 ### Added
 - JSDoc type hinting

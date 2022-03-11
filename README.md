@@ -74,7 +74,7 @@ TBD
 <dt><a href="#isWaitingForInput">isWaitingForInput(parsedData: ParsedData)</a> ⇒ <code>boolean</code></dt>
 <dd><p>Catches the &quot;&gt;&quot; character indicating that the modem waits for an input</p>
 </dd>
-<dt><a href="#getError">getError(parsedData: ParsedData)</a> ⇒ <code>ModemErrorRaw</code></dt>
+<dt><a href="#getError">getError(buffer)</a> ⇒ <code>ModemErrorRaw</code></dt>
 <dd><p>Intercepts the known error reporting patterns of the SIM800L, it also tries to get a formatted message describing the error</p>
 </dd>
 </dl>
@@ -100,6 +100,9 @@ TBD
         * [.list()](#Sim800L.list) ⇒ <code>Array.&lt;PortInfo&gt;</code>
 * [Sms](#Sms)
     * [new Sms(receipient, text, [options], modem)](#new_Sms_new)
+    * [.id](#Sms+id) : <code>string</code>
+    * [.text](#Sms+text) : <code>string</code>
+    * [.status](#Sms+status) : <code>SmsStatus</code>
     * [.send()](#Sms+send)
 
 <a name="Details"></a>
@@ -315,15 +318,16 @@ Catches the ">" character indicating that the modem waits for an input
 
 <a name="getError"></a>
 
-**getError(parsedData) ⇒ <code>ModemErrorRaw</code>**
+## getError(buffer) ⇒ <code>ModemErrorRaw</code>
 Intercepts the known error reporting patterns of the SIM800L, it also tries to get a formatted message describing the error
 
-*Kind*: global function  
-*Returns*: <code>ModemErrorRaw</code> - The response object containing an isError boolean and the result  
+**Kind**: global function  
+**Returns**: <code>ModemErrorRaw</code> - The response object containing an isError boolean and the result  
 
-| Param      | Type                    | Description             |
-| ---------- | ----------------------- | ----------------------- |
-| parsedData | <code>ParsedData</code> | the parsed buffer input |
+| Param  | Type                | Description          |
+| ------ | ------------------- | -------------------- |
+| buffer | <code>string</code> | the raw buffer input |
+
 
 
 <a name="Sms"></a>
@@ -341,15 +345,34 @@ As it's designed to work with a Sim800L modem, an instance of Sim800L must be pr
 | [options]  | <code>SmsCreationOptions</code> | <code>{}</code> | an object containing various options like delivery report activation, custom smsc, number format... |
 | modem      | <code>Sim800L</code>            |                 | an instance of Sim800L which will send the Sms                                                      |
 
+<a name="Sms+id"></a>
+
+### sms.id : <code>string</code>
+the UUID of the Sms
+
+**Kind**: instance property of [<code>Sms</code>](#Sms)  
+**Read only**: true  
+<a name="Sms+text"></a>
+
+### sms.text : <code>string</code>
+the raw text of the SMS, this can be changed as long as the SMS is not in an active or sent state
+
+**Kind**: instance property of [<code>Sms</code>](#Sms)  
+<a name="Sms+status"></a>
+
+### sms.status : <code>SmsStatus</code>
+An aggregated SmsStatus mimicking a single part Status even for multipart Smses
+
+**Kind**: instance property of [<code>Sms</code>](#Sms)  
+**Read only**: true  
 <a name="Sms+send"></a>
 
-**sms.send()**
+### sms.send()
 Sending the Sms (each part if multipart). uses an handler that updates the sms status property.
 
 If using the deliveryReport property, the Sms will also listen and handle deliveryreport Events emitted by the Modem
 
-*Kind*: instance method of [<code>Sms</code>](#Sms)  
-
+**Kind**: instance method of [<code>Sms</code>](#Sms)  
 
 ### Events
 TBD

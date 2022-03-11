@@ -4,7 +4,7 @@
  */
 
 export { Sms } from './models/Sms';
-export { SmsStatusChangeEvent, SmsErrorEvent } from './models/types/Sms';
+export { SmsStatusChangeEvent, SmsErrorEvent, DeliveryReportRawObject } from './models/types/Sms';
 export { ModemResponse, CheckNetworkData } from './models/types/ModemResponse';
 export { JobItem } from './models/types/JobItem';
 import { Sms } from './models/Sms';

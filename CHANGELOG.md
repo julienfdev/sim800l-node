@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - each network check emits a networkstatus event
+- each modem check emits a modemready event
 ### Removed
 ### Changed
 - Sms.send() now returns a boolean to announce if network was ready when it tried to send the sms

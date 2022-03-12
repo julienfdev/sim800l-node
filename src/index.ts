@@ -566,7 +566,10 @@ class Sim800L extends EventEmitter {
             return;
           }
           this.logger.verbose(`checknetwork - status: ${networkStatus}`);
-          this.emit('networkstatus', { networkAction, networkStatus });
+          this.emit('networkstatus', {
+            networkAction: parseInt(networkAction, 10),
+            networkStatus: parseInt(networkStatus, 10),
+          });
           callback({
             uuid: job.uuid,
             type: job.type,

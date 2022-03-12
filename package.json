@@ -1,6 +1,6 @@
 {
   "name": "sim800l-node",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "a SIM800L interface for Node.js written in TypeScript. Inspired by serialport-gsm",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'stream';
-import Sim800L, { getError, isOk, isWaitingForInput, parseBuffer, promisify } from '..';
+import Sim800L, { getError, isOk, isWaitingForInput, parseBuffer, promisify, sneakyDelivery } from '..';
 import {
   DeliveryReportRawObject,
   NumberType,
@@ -32,6 +32,7 @@ export class Sms extends EventEmitter {
   private _modem: Sim800L;
   private _shortRef = '';
   private logger: Logger;
+  public sendFlag: boolean = false;
   /**
    * the UUID of the Sms
    *
@@ -94,6 +95,9 @@ export class Sms extends EventEmitter {
       this._autoSend = options.autoSend || this._autoSend;
       this._id = options.customId || this._id;
     }
+    if (options.autoSend) {
+      this.sendFlag = true;
+    }
     this._modem = modem;
     this.logger = this._modem.logger;
     this.prepare();
@@ -113,10 +117,6 @@ export class Sms extends EventEmitter {
       this._receiver = this._receiver.replace(/[.\s-+]/g, '');
       // HANDLE NUMBER FORMATTING
       this.generateSmsParts(this._text);
-      if (this._autoSend) {
-        this.logger.verbose('smscreate - autosend set, queuing the SMS');
-        this.send();
-      }
     } catch (error: any) {
       this.logger.error(`smscreate - unable to prepare the SMS: ${error}`);
       throw error instanceof Error ? error : new Error(error);
@@ -196,6 +196,7 @@ export class Sms extends EventEmitter {
 
   private smsHandler: JobHandler = (buffer, job) => {
     // Handle
+    sneakyDelivery(buffer, this._modem);
     this.logger.verbose(`smshandler - using SMS handler`);
     const parsed = parseBuffer(buffer);
     this.logger.debug(`smshandler - buffer: ${parsed}`);

@@ -8,7 +8,7 @@ export { SmsStatusChangeEvent, SmsErrorEvent, DeliveryReportRawObject } from './
 export { ModemResponse, CheckNetworkData } from './models/types/ModemResponse';
 export { JobItem } from './models/types/JobItem';
 import { Sms } from './models/Sms';
-import { DeliveryReportRawObject, SmsCreationOptions } from './models/types/Sms';
+import { DeliveryReportRawObject, SmsCreationOptions, SmsStatus } from './models/types/Sms';
 import { SerialPort, SerialPortOpenOptions } from 'serialport';
 import { EventEmitter } from 'stream';
 import { v4 } from 'uuid';
@@ -49,6 +49,7 @@ class Sim800L extends EventEmitter {
   private dataBuffer = '';
   private networkMonitorInterval?: NodeJS.Timer;
   private inbox: InboundSms[] = [];
+  public outbox: Sms[] = [];
   public logger: Logger = {
     error: () => {
       /**/
@@ -96,6 +97,7 @@ class Sim800L extends EventEmitter {
       this.attachingEvents();
       this.initialize(null, {});
       this.brownoutDetector();
+      this.spooler();
       this.logger.debug(`sim800l - instance created`);
     } catch (error) {
       throw error;
@@ -138,7 +140,9 @@ class Sim800L extends EventEmitter {
    * @returns {Sms} An instance of the Sms class
    */
   public createSms = (receipient: string, text: string, options = {} as SmsCreationOptions) => {
-    return new Sms(receipient, text, options, this); // neat
+    const sms = new Sms(receipient, text, options, this);
+    this.outbox.push(sms);
+    return sms; // neat
   };
 
   /**
@@ -230,7 +234,8 @@ class Sim800L extends EventEmitter {
       this.logger.verbose(`checkmodem - checking modem connection`);
       try {
         // We define the handler, which will search of an OK end of query
-        const handler: JobHandler = (buffer, job) => {
+        const handler: JobHandler = (buffer, job, emitter) => {
+          sneakyDelivery(buffer, emitter);
           if (isOk(buffer)) {
             this.emit('modemready', true);
             this.logger.debug(`checkmodem - modem online`);
@@ -484,7 +489,8 @@ class Sim800L extends EventEmitter {
       }
       //
       this.logger.warn(`resetmodem - modem will reset`);
-      const handler: JobHandler = (buffer, job) => {
+      const handler: JobHandler = (buffer, job, emitter) => {
+        sneakyDelivery(buffer, emitter);
         // Very simple handler, once called, it just sets a timeout of a few seconds resetting the whole object
         setTimeout(() => {
           this.logger.warn(`resetmodem - modem has reset`);
@@ -530,9 +536,10 @@ class Sim800L extends EventEmitter {
       return promisify(this.checkNetwork, { force });
     } else {
       this.logger.verbose(`checknetwork - getting carrier registration status`);
-      const handler: JobHandler = (buffer, job) => {
+      const handler: JobHandler = (buffer, job, emitter) => {
         const parsedBuffer = parseBuffer(buffer);
         // Checks if parsedBuffer bears network info
+        sneakyDelivery(buffer, emitter);
         if (isOk(buffer)) {
           this.logger.debug(`checknetwork - buffer : ${parsedBuffer}`);
           const part = parsedBuffer.find((value) => value.startsWith('+CREG: '));
@@ -895,7 +902,7 @@ class Sim800L extends EventEmitter {
         // preventing to clutter the networkRetry when modem isn't initialized
         this.checkNetwork(null, {});
       }
-    }, 30000);
+    }, 60000);
   }
   private brownoutDetector() {
     return setInterval(async () => {
@@ -908,6 +915,26 @@ class Sim800L extends EventEmitter {
     }, 20000);
   }
 
+  private spooler() {
+    return setInterval(() => {
+      if (this.isNetworkReady && this.isInitialized) {
+        // if there is something inside the inbox, we check the first element
+        if (this.outbox.length) {
+          const sms = this.outbox[0];
+          if (sms.sendFlag && sms.status === SmsStatus.IDLE) {
+            sms.sendFlag = false;
+            sms.send();
+          } else if (sms.status === SmsStatus.SENT || SmsStatus.DELIVERED) {
+            spliceFromSpooler(sms.id, this.outbox);
+          } else if (!sms.sendFlag && sms.status === SmsStatus.IDLE) {
+            // We push it at the end of the line
+            this.outbox.push(this.outbox.shift()!);
+          }
+        }
+      }
+    }, 500);
+  }
+
   // Internal Incoming Handlers (those who need access to the sim)
 
   private incomingHandler: JobHandler = async (buffer, job, emitter, logger) => {
@@ -916,6 +943,7 @@ class Sim800L extends EventEmitter {
       const parsedData = parseBuffer(buffer);
       // Incoming handler when there is no queue, taking care of emitting events (eg: sms... delivery report...)
       // There are no callbacks for the incomingHanlder as it is initiated by the server itself, but it emits events
+      sneakyDelivery(buffer, emitter);
       if (isNetworkReadyIncomingBuffer(parsedData)) {
         logger?.debug(`incominghandler - +CREG network ready, updating`);
         if (emitter) {
@@ -1036,7 +1064,7 @@ export function isOk(buffer: string): boolean {
  * @returns {boolean} A boolean describing if the modem is waiting for an input
  */
 export function isWaitingForInput(parsedData: ParsedData): boolean {
-  return parsedData.length ? parsedData[parsedData.length - 1].startsWith('>') : false;
+  return parsedData.length ? parsedData[parsedData.length - 1] === '> ' : false;
 }
 
 /**
@@ -1085,6 +1113,29 @@ function findKey(parsedData: ParsedData, key: string) {
 function isDeliveryReport(parsedData: ParsedData) {
   return findKey(parsedData, '+CDS: ');
 }
+export function sneakyDelivery(buffer: string, emitter: EventEmitter) {
+  const parsedData = parseBuffer(buffer);
+  if (isDeliveryReport(parsedData)) {
+    // If CDS key is not the last key of the buffer, we can emit a DeliveryReportRawObject and end the job
+    const cdsIndex = parsedData.findIndex((key) => {
+      return key.startsWith('+CDS: ');
+    });
+    if (parsedData.length > cdsIndex + 1 && buffer.endsWith('\r\n')) {
+      emitter.emit('deliveryreport', {
+        shortId: parseInt(parsedData[cdsIndex].replace('+CDS: ', ''), 10),
+        data: parsedData[cdsIndex + 1],
+      } as DeliveryReportRawObject);
+    }
+  }
+}
+function spliceFromSpooler(id: string, spooler: Sms[]) {
+  const index = spooler.findIndex((sms) => {
+    return sms.id === id;
+  });
+  if (index > -1) {
+    spooler.splice(index, 1);
+  }
+}
 //  ___  ___  ________  ________   ________  ___       _______   ________  ________
 // |\  \|\  \|\   __  \|\   ___  \|\   ___ \|\  \     |\  ___ \ |\   __  \|\   ____\
 // \ \  \\\  \ \  \|\  \ \  \\ \  \ \  \_|\ \ \  \    \ \   __/|\ \  \|\  \ \  \___|_
@@ -1094,8 +1145,9 @@ function isDeliveryReport(parsedData: ParsedData) {
 //     \|__|\|__|\|__|\|__|\|__| \|__|\|_______|\|_______|\|_______|\|__|\|__|\_________\
 //                                                                           \|_________|
 
-const defaultHandler: JobHandler = (buffer, job, emitter?, logger?): void => {
+const defaultHandler: JobHandler = (buffer, job, emitter, logger?): void => {
   try {
+    sneakyDelivery(buffer, emitter);
     logger?.verbose(`defaulthandler - using default handler`);
     const parsedData = parseBuffer(buffer);
     logger?.debug(`defaulthandler - buffer : ${parsedData}`);

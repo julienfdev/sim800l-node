@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - each network check emits a networkstatus event
 - each modem check emits a modemready event
+- a "sneakyDelivery" method that tries to intercept rogue delivery reports into other commands, doing so improved the detection rate in rapid batches from 30 to 100%
 ### Removed
 ### Changed
-- Sms.send() now returns a boolean to announce if network was ready when it tried to send the sms
+BREAKING
+Currently, using the public function try to send the Sms right away, that can be unreliable regarding delivery reports if you're sending a batch of sms
+- Added a spooler you can queue SMS into into the Sim800L class, this is a public property, just push your Sms and set its "sendFlag" to true when ready
+- Sms won't begin to process before the previous one is through 
 ### Fixed
 
 ## [0.4.0] - 2022-03-11 

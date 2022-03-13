@@ -7,6 +7,8 @@ An object oriented SMS class provides an abstraction layer for the messaging rel
 
 Due to the asynchronous and unpredictable nature of UART + GSM communication, the package also make a good use of Events.
 
+## Due to recent late-night changes, the documentation needs some update, there is a brand new SMS Spooler and a kick-ass detection of rogue delivery-reports
+
 ## Table of contents
 * [Roadmap](#Roadmap)
   * [What's working atm](#wwatm)
